@@ -151,8 +151,22 @@ export function Home() {
           </Show>
         </box>
         <box flexGrow={1} />
-        <box flexShrink={0}>
-          <text fg={theme.textMuted}>{Installation.VERSION}</text>
+        <box flexShrink={0} flexDirection="row" gap={2}>
+          <text fg={theme.textMuted}>
+            {Installation.VERSION}
+            {Installation.latestUpstream && Installation.latestUpstream !== Installation.VERSION_RAW ? (
+              <span style={{ fg: theme.warning }}>{` ↑ ${Installation.latestUpstream}`}</span>
+            ) : null}
+          </text>
+          <Show when={Installation.trackedPlugins.some((p) => p.latest && p.latest !== p.local && !p.builtin)}>
+            <text fg={theme.warning}>
+              {Installation.trackedPlugins.filter((p) => p.latest && p.latest !== p.local && !p.builtin).length} plugin
+              {Installation.trackedPlugins.filter((p) => p.latest && p.latest !== p.local && !p.builtin).length > 1
+                ? "s"
+                : ""}{" "}
+              outdated
+            </text>
+          </Show>
         </box>
       </box>
     </>

@@ -653,11 +653,10 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const skills = await SystemPrompt.skills(agent)
-      const system = [
-        ...(await SystemPrompt.environment(model)),
-        ...(skills ? [skills] : []),
-        ...(await InstructionPrompt.system()),
-      ]
+      const instructions = await InstructionPrompt.system()
+      const environment = await SystemPrompt.environment(model)
+      const system = [...instructions.global, ...environment, ...(skills ? [skills] : []), ...instructions.project]
+      const systemSplit = instructions.global.length
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
@@ -670,6 +669,7 @@ export namespace SessionPrompt {
         abort,
         sessionID,
         system,
+        systemSplit,
         messages: [
           ...MessageV2.toModelMessages(msgs, model),
           ...(isLastStep

@@ -231,9 +231,49 @@ export namespace Installation {
     await Process.text([process.execPath, "--version"], { nothrow: true })
   }
 
-  export const VERSION = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
+  export const VERSION_RAW = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
+  export const VERSION = VERSION_RAW + " (fork)"
   export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
-  export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
+  export const USER_AGENT = `opencode/${CHANNEL}/${VERSION_RAW}/${Flag.OPENCODE_CLIENT}`
+
+  /** Latest upstream version, populated by upgrade check */
+  export let latestUpstream: string | undefined
+  export function setLatestUpstream(v: string) {
+    latestUpstream = v
+  }
+
+  export interface PluginInfo {
+    name: string
+    npmName: string
+    local: string
+    latest?: string
+    builtin?: boolean
+  }
+
+  export let trackedPlugins: PluginInfo[] = []
+
+  export function setTrackedPlugins(plugins: PluginInfo[]) {
+    trackedPlugins = plugins
+  }
+
+  export async function fetchNpmVersion(pkg: string): Promise<string> {
+    return fetch(`https://registry.npmjs.org/${pkg}/latest`)
+      .then((res) => {
+        if (!res.ok) throw new Error(res.statusText)
+        return res.json()
+      })
+      .then((data: any) => data.version as string)
+  }
+
+  export async function checkAllPluginUpdates(): Promise<void> {
+    await Promise.all(
+      trackedPlugins.map(async (plugin) => {
+        try {
+          plugin.latest = await fetchNpmVersion(plugin.npmName)
+        } catch {}
+      }),
+    )
+  }
 
   export async function latest(installMethod?: Method) {
     const detectedMethod = installMethod || (await method())

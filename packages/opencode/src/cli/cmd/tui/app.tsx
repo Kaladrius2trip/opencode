@@ -732,8 +732,8 @@ function App() {
   sdk.event.on(Installation.Event.UpdateAvailable.type, (evt) => {
     toast.show({
       variant: "info",
-      title: "Update Available",
-      message: `OpenCode v${evt.properties.version} is available. Run 'opencode upgrade' to update manually.`,
+      title: "Upstream Update",
+      message: `Upstream OpenCode v${evt.properties.version} available (you're on fork v${Installation.VERSION_RAW})`,
       duration: 10000,
     })
   })
