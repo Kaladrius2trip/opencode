@@ -29,6 +29,7 @@ import { batch, onMount } from "solid-js"
 import { Log } from "@/util/log"
 import type { Path } from "@opencode-ai/sdk"
 import type { Workspace } from "@opencode-ai/sdk/v2"
+import type { RateLimit } from "@/provider/ratelimit"
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
@@ -72,6 +73,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         [key: string]: McpResource
       }
       formatter: FormatterStatus[]
+      ratelimit: Record<string, RateLimit.Info>
       vcs: VcsInfo | undefined
       path: Path
       workspaceList: Workspace[]
@@ -100,6 +102,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       mcp: {},
       mcp_resource: {},
       formatter: [],
+      ratelimit: {},
       vcs: undefined,
       path: { state: "", config: "", worktree: "", directory: "" },
       workspaceList: [],
@@ -349,6 +352,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           setStore("vcs", { branch: event.properties.branch })
           break
         }
+      }
+      if ((event.type as string) === "ratelimit.updated") {
+        const props = (event as unknown as { properties: RateLimit.Info }).properties
+        setStore("ratelimit", props.providerID, reconcile(props))
       }
     })
 
