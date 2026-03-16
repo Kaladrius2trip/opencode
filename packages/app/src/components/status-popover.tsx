@@ -162,6 +162,51 @@ const useMcpToggle = (input: {
   return { loading, toggle }
 }
 
+function LimitRow(props: {
+  label: string
+  dimension: { limit: number; remaining: number; reset?: string }
+  language: ReturnType<typeof useLanguage>
+}) {
+  const pct = () =>
+    Math.min(100, Math.round(((props.dimension.limit - props.dimension.remaining) / props.dimension.limit) * 100))
+  const reset = () => {
+    if (!props.dimension.reset) return undefined
+    const diff = Math.ceil((new Date(props.dimension.reset).getTime() - Date.now()) / 1000)
+    if (diff <= 0) return undefined
+    return `${diff}s`
+  }
+  return (
+    <div class="flex flex-col gap-1 px-2 py-1">
+      <div class="flex items-center justify-between">
+        <span class="text-12-regular text-text-base">{props.label}</span>
+        <div class="flex items-center gap-2">
+          <Show when={reset()}>
+            {(r) => (
+              <span class="text-11-regular text-text-weaker">
+                {props.language.t("dialog.limits.reset")} {r()}
+              </span>
+            )}
+          </Show>
+          <span class="text-12-regular text-text-weak">
+            {props.dimension.remaining.toLocaleString()} / {props.dimension.limit.toLocaleString()}
+          </span>
+        </div>
+      </div>
+      <div class="h-1 w-full rounded-full bg-surface-base overflow-hidden">
+        <div
+          class="h-full rounded-full transition-all"
+          classList={{
+            "bg-icon-success-base": pct() < 70,
+            "bg-icon-warning-base": pct() >= 70 && pct() < 90,
+            "bg-icon-critical-base": pct() >= 90,
+          }}
+          style={{ width: `${pct()}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function StatusPopover() {
   const sync = useSync()
   const sdk = useSDK()
@@ -191,6 +236,8 @@ export function StatusPopover() {
   const plugins = createMemo(() => sync.data.config.plugin ?? [])
   const pluginCount = createMemo(() => plugins().length)
   const pluginEmpty = createMemo(() => pluginEmptyMessage(language.t("dialog.plugins.empty"), "opencode.json"))
+  const limits = createMemo(() => Object.values(sync.data.ratelimit ?? {}))
+  const limitsCount = createMemo(() => limits().length)
   const overallHealthy = createMemo(() => {
     const serverHealthy = server.healthy() === true
     const anyMcpIssue = mcpNames().some((name) => {
@@ -256,6 +303,10 @@ export function StatusPopover() {
             <Tabs.Trigger value="plugins" data-slot="tab" class="text-12-regular">
               {pluginCount() > 0 ? `${pluginCount()} ` : ""}
               {language.t("status.popover.tab.plugins")}
+            </Tabs.Trigger>
+            <Tabs.Trigger value="limits" data-slot="tab" class="text-12-regular">
+              {limitsCount() > 0 ? `${limitsCount()} ` : ""}
+              {language.t("status.popover.tab.limits")}
             </Tabs.Trigger>
           </Tabs.List>
 
@@ -409,6 +460,71 @@ export function StatusPopover() {
                       <div class="flex items-center gap-2 w-full px-2 py-1">
                         <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" />
                         <span class="text-14-regular text-text-base truncate">{plugin}</span>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </div>
+          </Tabs.Content>
+
+          <Tabs.Content value="limits">
+            <div class="flex flex-col px-2 pb-2">
+              <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+                <Show
+                  when={limits().length > 0}
+                  fallback={
+                    <div class="text-14-regular text-text-base text-center my-auto">
+                      {language.t("dialog.limits.empty")}
+                    </div>
+                  }
+                >
+                  <For each={limits()}>
+                    {(info) => (
+                      <div class="flex flex-col gap-2 pb-2">
+                        <div class="text-12-regular text-text-weak px-2">{info.providerID}</div>
+                        <Show when={info.requests}>
+                          {(req) => (
+                            <LimitRow
+                              label={language.t("dialog.limits.requests")}
+                              dimension={req()}
+                              language={language}
+                            />
+                          )}
+                        </Show>
+                        <Show when={info.tokens}>
+                          {(tok) => (
+                            <LimitRow
+                              label={language.t("dialog.limits.tokens")}
+                              dimension={tok()}
+                              language={language}
+                            />
+                          )}
+                        </Show>
+                        <Show when={info.inputTokens}>
+                          {(itok) => (
+                            <div class="flex items-center justify-between px-2 py-1">
+                              <span class="text-12-regular text-text-base">
+                                {language.t("dialog.limits.inputTokens")}
+                              </span>
+                              <span class="text-12-regular text-text-weak">
+                                {itok().remaining.toLocaleString()} {language.t("dialog.limits.remaining")}
+                              </span>
+                            </div>
+                          )}
+                        </Show>
+                        <Show when={info.outputTokens}>
+                          {(otok) => (
+                            <div class="flex items-center justify-between px-2 py-1">
+                              <span class="text-12-regular text-text-base">
+                                {language.t("dialog.limits.outputTokens")}
+                              </span>
+                              <span class="text-12-regular text-text-weak">
+                                {otok().remaining.toLocaleString()} {language.t("dialog.limits.remaining")}
+                              </span>
+                            </div>
+                          )}
+                        </Show>
                       </div>
                     )}
                   </For>
