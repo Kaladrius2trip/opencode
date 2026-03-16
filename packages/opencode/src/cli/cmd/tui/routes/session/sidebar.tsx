@@ -333,11 +333,11 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
               <b>Code</b>
             </span>{" "}
             <span>{Installation.VERSION}</span>
-            {Installation.latestUpstream && Installation.latestUpstream !== Installation.VERSION_RAW ? (
-              <span style={{ fg: theme.warning }}>{` ↑ ${Installation.latestUpstream}`}</span>
+            {Installation.getLatestUpstream() && Installation.getLatestUpstream() !== Installation.VERSION_RAW ? (
+              <span style={{ fg: theme.warning }}>{` ↑ ${Installation.getLatestUpstream()}`}</span>
             ) : null}
           </text>
-          <For each={Installation.trackedPlugins}>
+          <For each={[...Installation.getTrackedPlugins()]}>
             {(plugin) => (
               <text fg={theme.textMuted}>
                 <span style={{ fg: theme.success }}>•</span>{" "}

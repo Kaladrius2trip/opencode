@@ -154,14 +154,14 @@ export function Home() {
         <box flexShrink={0} flexDirection="row" gap={2}>
           <text fg={theme.textMuted}>
             {Installation.VERSION}
-            {Installation.latestUpstream && Installation.latestUpstream !== Installation.VERSION_RAW ? (
-              <span style={{ fg: theme.warning }}>{` ↑ ${Installation.latestUpstream}`}</span>
+            {Installation.getLatestUpstream() && Installation.getLatestUpstream() !== Installation.VERSION_RAW ? (
+              <span style={{ fg: theme.warning }}>{` ↑ ${Installation.getLatestUpstream()}`}</span>
             ) : null}
           </text>
-          <Show when={Installation.trackedPlugins.some((p) => p.latest && p.latest !== p.local && !p.builtin)}>
+          <Show when={Installation.getTrackedPlugins().some((p) => p.latest && p.latest !== p.local && !p.builtin)}>
             <text fg={theme.warning}>
-              {Installation.trackedPlugins.filter((p) => p.latest && p.latest !== p.local && !p.builtin).length} plugin
-              {Installation.trackedPlugins.filter((p) => p.latest && p.latest !== p.local && !p.builtin).length > 1
+              {Installation.getTrackedPlugins().filter((p) => p.latest && p.latest !== p.local && !p.builtin).length} plugin
+              {Installation.getTrackedPlugins().filter((p) => p.latest && p.latest !== p.local && !p.builtin).length > 1
                 ? "s"
                 : ""}{" "}
               outdated

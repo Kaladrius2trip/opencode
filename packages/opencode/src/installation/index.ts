@@ -237,9 +237,12 @@ export namespace Installation {
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION_RAW}/${Flag.OPENCODE_CLIENT}`
 
   /** Latest upstream version, populated by upgrade check */
-  export let latestUpstream: string | undefined
+  let _latestUpstream: string | undefined
+  export function getLatestUpstream(): string | undefined {
+    return _latestUpstream
+  }
   export function setLatestUpstream(v: string) {
-    latestUpstream = v
+    _latestUpstream = v
   }
 
   export interface PluginInfo {
@@ -250,10 +253,12 @@ export namespace Installation {
     builtin?: boolean
   }
 
-  export let trackedPlugins: PluginInfo[] = []
-
+  let _trackedPlugins: PluginInfo[] = []
+  export function getTrackedPlugins(): readonly PluginInfo[] {
+    return _trackedPlugins
+  }
   export function setTrackedPlugins(plugins: PluginInfo[]) {
-    trackedPlugins = plugins
+    _trackedPlugins = [...plugins]
   }
 
   export async function fetchNpmVersion(pkg: string): Promise<string> {
@@ -267,7 +272,7 @@ export namespace Installation {
 
   export async function checkAllPluginUpdates(): Promise<void> {
     await Promise.all(
-      trackedPlugins.map(async (plugin) => {
+      _trackedPlugins.map(async (plugin) => {
         try {
           plugin.latest = await fetchNpmVersion(plugin.npmName)
         } catch {}

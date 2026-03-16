@@ -12,11 +12,13 @@ import { Session } from "../session"
 import { NamedError } from "@opencode-ai/util/error"
 import { CopilotAuthPlugin } from "./copilot"
 import { gitlabAuthPlugin as GitlabAuthPlugin } from "@gitlab/opencode-gitlab-auth"
+import { existsSync } from "fs"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
 
-  const BUILTIN = [`file://${process.env.HOME || "~"}/Projects/opencode-anthropic-auth/index.mjs`]
+  const LOCAL_AUTH_PLUGIN = `${process.env.HOME || ""}/Projects/opencode-anthropic-auth/index.mjs`
+  const BUILTIN = [existsSync(LOCAL_AUTH_PLUGIN) ? `file://${LOCAL_AUTH_PLUGIN}` : "opencode-anthropic-auth@0.0.13"]
 
   // Built-in plugins that are directly imported (not installed from npm)
   const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin, GitlabAuthPlugin]

@@ -1,12 +1,14 @@
 import { Bus } from "@/bus"
+import { Config } from "@/config/config"
+import { Flag } from "@/flag/flag"
+import { Global } from "@/global"
 import { Installation } from "@/installation"
-import { readFileSync } from "fs"
-import { join } from "path"
+import { existsSync, readFileSync } from "fs"
+import path from "path"
 
-function discoverPlugins(): Installation.PluginInfo[] {
+function discoverPlugins(config: Awaited<ReturnType<typeof Config.global>>): Installation.PluginInfo[] {
   const plugins: Installation.PluginInfo[] = []
-  const home = process.env.HOME || "~"
-  const cacheDir = join(home, ".cache", "opencode", "node_modules")
+  const cacheDir = path.join(Global.Path.cache, "node_modules")
 
   plugins.push({
     name: "anthropic-auth",
@@ -15,11 +17,7 @@ function discoverPlugins(): Installation.PluginInfo[] {
     builtin: true,
   })
 
-  let configPlugins: string[] = []
-  try {
-    const raw = readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf-8")
-    configPlugins = JSON.parse(raw).plugin || []
-  } catch {}
+  const configPlugins = config.plugin ?? []
 
   for (const entry of configPlugins) {
     const lastAt = entry.lastIndexOf("@")
@@ -28,8 +26,11 @@ function discoverPlugins(): Installation.PluginInfo[] {
 
     let local = "?"
     try {
-      const pkg = JSON.parse(readFileSync(join(cacheDir, name, "package.json"), "utf-8"))
-      local = pkg.version || "?"
+      const pkgPath = path.join(cacheDir, name, "package.json")
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
+        local = pkg.version || "?"
+      }
     } catch {}
 
     plugins.push({
@@ -43,7 +44,10 @@ function discoverPlugins(): Installation.PluginInfo[] {
 }
 
 export async function upgrade() {
-  Installation.setTrackedPlugins(discoverPlugins())
+  const config = await Config.global()
+  if (config.autoupdate === false || Flag.OPENCODE_DISABLE_AUTOUPDATE) return
+
+  Installation.setTrackedPlugins(discoverPlugins(config))
 
   const [latest] = await Promise.all([
     Installation.latest(await Installation.method()).catch(() => undefined),
