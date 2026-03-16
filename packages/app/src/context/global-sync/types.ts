@@ -31,6 +31,25 @@ export type ProjectMeta = {
   }
 }
 
+type RateLimitDimension = {
+  limit: number
+  remaining: number
+  reset?: string
+}
+
+type RateLimitTokenDimension = {
+  remaining: number
+}
+
+export type RateLimitInfo = {
+  providerID: string
+  requests?: RateLimitDimension
+  tokens?: RateLimitDimension
+  inputTokens?: RateLimitTokenDimension
+  outputTokens?: RateLimitTokenDimension
+  time: number
+}
+
 export type State = {
   status: "loading" | "partial" | "complete"
   agent: Agent[]
@@ -62,6 +81,9 @@ export type State = {
     [name: string]: McpStatus
   }
   lsp: LspStatus[]
+  ratelimit: {
+    [providerID: string]: RateLimitInfo
+  }
   vcs: VcsInfo | undefined
   limit: number
   message: {

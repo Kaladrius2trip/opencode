@@ -11,7 +11,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { State, VcsCache } from "./types"
+import type { RateLimitInfo, State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 
@@ -350,6 +350,11 @@ export function applyDirectoryEvent(input: {
     }
     case "lsp.updated": {
       input.loadLsp()
+      break
+    }
+    case "ratelimit.updated": {
+      const props = event.properties as RateLimitInfo
+      input.setStore("ratelimit", props.providerID, reconcile(props))
       break
     }
   }
