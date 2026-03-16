@@ -41,12 +41,25 @@ type RateLimitTokenDimension = {
   remaining: number
 }
 
+type RateLimitWindow = {
+  pct: number
+  reset: number
+  status: string
+}
+
+type RateLimitUtilization = {
+  window5h?: RateLimitWindow
+  window7d?: RateLimitWindow
+  overall?: string
+}
+
 export type RateLimitInfo = {
   providerID: string
   requests?: RateLimitDimension
   tokens?: RateLimitDimension
   inputTokens?: RateLimitTokenDimension
   outputTokens?: RateLimitTokenDimension
+  utilization?: RateLimitUtilization
   time: number
 }
 

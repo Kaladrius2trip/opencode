@@ -606,6 +606,12 @@ export const dict = {
   "dialog.limits.outputTokens": "Output tokens / min",
   "dialog.limits.remaining": "remaining",
   "dialog.limits.reset": "resets in",
+  "dialog.limits.utilization": "Subscription usage",
+  "dialog.limits.window5h": "5h window",
+  "dialog.limits.window7d": "7d window",
+  "dialog.limits.status.allowed": "OK",
+  "dialog.limits.status.allowed_warning": "Warning",
+  "dialog.limits.status.denied": "Limit reached",
   "status.popover.action.manageServers": "Manage servers",
 
   "session.share.popover.title": "Publish on web",

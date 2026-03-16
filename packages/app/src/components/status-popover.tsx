@@ -162,6 +162,70 @@ const useMcpToggle = (input: {
   return { loading, toggle }
 }
 
+function UtilRow(props: {
+  label: string
+  window: { pct: number; reset: number; status: string }
+  language: ReturnType<typeof useLanguage>
+}) {
+  const pct = () => Math.min(100, Math.round(props.window.pct * 100))
+  const reset = () => {
+    const diff = Math.ceil(props.window.reset - Date.now() / 1000)
+    if (diff <= 0) return undefined
+    if (diff < 3600) return `${Math.ceil(diff / 60)}m`
+    if (diff < 86400) {
+      const h = Math.floor(diff / 3600)
+      const m = Math.floor((diff % 3600) / 60)
+      return `${h}h${m.toString().padStart(2, "0")}m`
+    }
+    return `${(diff / 86400).toFixed(1)}d`
+  }
+  const badge = () => {
+    if (props.window.status === "denied") return "dialog.limits.status.denied" as const
+    if (props.window.status.includes("warning")) return "dialog.limits.status.allowed_warning" as const
+    return "dialog.limits.status.allowed" as const
+  }
+  return (
+    <div class="flex flex-col gap-1 px-2 py-1">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-12-regular text-text-base">{props.label}</span>
+          <span
+            class="text-10-regular px-1 rounded"
+            classList={{
+              "bg-surface-success text-icon-success-base": props.window.status === "allowed",
+              "bg-surface-warning text-icon-warning-base": props.window.status.includes("warning"),
+              "bg-surface-critical text-icon-critical-base": props.window.status === "denied",
+            }}
+          >
+            {props.language.t(badge())}
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <Show when={reset()}>
+            {(r) => (
+              <span class="text-11-regular text-text-weaker">
+                {props.language.t("dialog.limits.reset")} {r()}
+              </span>
+            )}
+          </Show>
+          <span class="text-12-regular text-text-weak">{pct()}%</span>
+        </div>
+      </div>
+      <div class="h-1.5 w-full rounded-full bg-surface-base overflow-hidden">
+        <div
+          class="h-full rounded-full transition-all"
+          classList={{
+            "bg-icon-success-base": pct() < 70,
+            "bg-icon-warning-base": pct() >= 70 && pct() < 90,
+            "bg-icon-critical-base": pct() >= 90,
+          }}
+          style={{ width: `${pct()}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function LimitRow(props: {
   label: string
   dimension: { limit: number; remaining: number; reset?: string }
@@ -483,6 +547,33 @@ export function StatusPopover() {
                     {(info) => (
                       <div class="flex flex-col gap-2 pb-2">
                         <div class="text-12-regular text-text-weak px-2">{info.providerID}</div>
+                        <Show when={info.utilization}>
+                          {(util) => (
+                            <>
+                              <div class="text-11-regular text-text-weaker px-2 pt-1">
+                                {language.t("dialog.limits.utilization")}
+                              </div>
+                              <Show when={util().window5h}>
+                                {(w) => (
+                                  <UtilRow
+                                    label={language.t("dialog.limits.window5h")}
+                                    window={w()}
+                                    language={language}
+                                  />
+                                )}
+                              </Show>
+                              <Show when={util().window7d}>
+                                {(w) => (
+                                  <UtilRow
+                                    label={language.t("dialog.limits.window7d")}
+                                    window={w()}
+                                    language={language}
+                                  />
+                                )}
+                              </Show>
+                            </>
+                          )}
+                        </Show>
                         <Show when={info.requests}>
                           {(req) => (
                             <LimitRow

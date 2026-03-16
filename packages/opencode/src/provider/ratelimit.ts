@@ -31,6 +31,25 @@ export namespace RateLimit {
           remaining: z.number(),
         })
         .optional(),
+      utilization: z
+        .object({
+          window5h: z
+            .object({
+              pct: z.number(),
+              reset: z.number(),
+              status: z.string(),
+            })
+            .optional(),
+          window7d: z
+            .object({
+              pct: z.number(),
+              reset: z.number(),
+              status: z.string(),
+            })
+            .optional(),
+          overall: z.string().optional(),
+        })
+        .optional(),
       time: z.number(),
     })
     .meta({
@@ -48,7 +67,8 @@ export namespace RateLimit {
   })
 
   export function parse(providerID: string, headers: Record<string, string>) {
-    if (!headers["anthropic-ratelimit-requests-limit"]) return
+    const has = headers["anthropic-ratelimit-requests-limit"] || headers["anthropic-ratelimit-unified-5h-utilization"]
+    if (!has) return
 
     function num(h: string) {
       const val = Number.parseFloat(headers[h])
@@ -65,12 +85,25 @@ export namespace RateLimit {
     const irem = num("anthropic-ratelimit-input-tokens-remaining")
     const orem = num("anthropic-ratelimit-output-tokens-remaining")
 
+    const u5h = num("anthropic-ratelimit-unified-5h-utilization")
+    const r5h = num("anthropic-ratelimit-unified-5h-reset")
+    const s5h = headers["anthropic-ratelimit-unified-5h-status"]
+    const u7d = num("anthropic-ratelimit-unified-7d-utilization")
+    const r7d = num("anthropic-ratelimit-unified-7d-reset")
+    const s7d = headers["anthropic-ratelimit-unified-7d-status"]
+    const overall = headers["anthropic-ratelimit-unified-status"]
+
+    const w5h = u5h !== undefined ? { pct: u5h, reset: r5h ?? 0, status: s5h ?? "" } : undefined
+    const w7d = u7d !== undefined ? { pct: u7d, reset: r7d ?? 0, status: s7d ?? "" } : undefined
+    const util = w5h || w7d ? { window5h: w5h, window7d: w7d, overall } : undefined
+
     const info: Info = {
       providerID,
       requests: lim !== undefined && rem !== undefined ? { limit: lim, remaining: rem, reset: rst } : undefined,
       tokens: tlim !== undefined && trem !== undefined ? { limit: tlim, remaining: trem, reset: trst } : undefined,
       inputTokens: irem !== undefined ? { remaining: irem } : undefined,
       outputTokens: orem !== undefined ? { remaining: orem } : undefined,
+      utilization: util,
       time: Date.now(),
     }
 
