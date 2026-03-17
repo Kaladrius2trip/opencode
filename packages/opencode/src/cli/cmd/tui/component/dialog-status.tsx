@@ -4,8 +4,14 @@ import { useTheme } from "../context/theme"
 import { useDialog } from "@tui/ui/dialog"
 import { useSync } from "@tui/context/sync"
 import { For, Match, Switch, Show, createMemo } from "solid-js"
+import type { RateLimit } from "@/provider/ratelimit"
 
 export type DialogStatusProps = {}
+
+function label(id: string) {
+  if (id === "anthropic" || id.startsWith("anthropic")) return "Claude Code"
+  return id
+}
 
 function fmtReset(epoch: number) {
   const diff = Math.ceil(epoch - Date.now() / 1000)
@@ -14,7 +20,7 @@ function fmtReset(epoch: number) {
   if (diff < 86400) {
     const h = Math.floor(diff / 3600)
     const m = Math.floor((diff % 3600) / 60)
-    return `${h}h${m.toString().padStart(2, "0")}m`
+    return `${h}h ${m.toString().padStart(2, "0")}m`
   }
   return `${(diff / 86400).toFixed(1)}d`
 }
@@ -22,6 +28,17 @@ function fmtReset(epoch: number) {
 function bar(pct: number, width = 20) {
   const filled = Math.round(pct * width)
   return "[" + "#".repeat(filled) + ".".repeat(width - filled) + "]"
+}
+
+function status(info: RateLimit.Info) {
+  const windows = [info.utilization?.window5h, info.utilization?.window7d].filter(Boolean)
+  const val = windows.reduce((acc, w) => {
+    if (w!.status === "denied") return "denied"
+    if (w!.status.includes("warning") && acc !== "denied") return "warning"
+    return acc
+  }, "ok" as string)
+  const reset = windows.reduce((min, w) => (w!.reset && w!.reset < min ? w!.reset : min), Infinity)
+  return { val, reset }
 }
 
 export function DialogStatus() {
@@ -181,49 +198,43 @@ export function DialogStatus() {
         </box>
       </Show>
       <Show when={limits().length > 0}>
-        <box>
-          <text fg={theme.text}>Rate Limits</text>
-          <For each={limits()}>
-            {(info) => (
+        <For each={limits()}>
+          {(info) => {
+            const s = () => status(info)
+            return (
               <box>
-                <text fg={theme.textMuted}>{info.providerID}</text>
+                <text fg={theme.text}>
+                  {label(info.providerID)} Limits <span style={{ fg: theme.textMuted }}>({info.providerID})</span>
+                </text>
+                <Show when={info.utilization}>
+                  <text fg={theme.text}>
+                    {"  "}
+                    <span
+                      style={{
+                        fg: s().val === "denied" ? theme.error : s().val === "warning" ? theme.warning : theme.success,
+                      }}
+                    >
+                      {s().val === "denied" ? "✕ DENIED" : s().val === "warning" ? "⚠ WARN" : "● OK"}
+                    </span>
+                    <Show when={fmtReset(s().reset)}>
+                      <span style={{ fg: theme.textMuted }}>
+                        {"  resets in "}
+                        {fmtReset(s().reset)}
+                      </span>
+                    </Show>
+                  </text>
+                </Show>
                 <Show when={info.utilization?.window5h}>
                   {(w) => (
                     <text fg={theme.text}>
-                      {"  "}5h: {Math.round(w().pct * 100)}% {bar(w().pct)}{" "}
-                      <span
-                        style={{
-                          fg:
-                            w().status === "denied"
-                              ? theme.error
-                              : w().status.includes("warning")
-                                ? theme.warning
-                                : theme.success,
-                        }}
-                      >
-                        {w().status === "denied" ? "DENIED" : w().status.includes("warning") ? "WARN" : "OK"}
-                      </span>
-                      {fmtReset(w().reset) ? ` reset ${fmtReset(w().reset)}` : ""}
+                      {"  "}5h: {Math.round(w().pct * 100)}% {bar(w().pct)}
                     </text>
                   )}
                 </Show>
                 <Show when={info.utilization?.window7d}>
                   {(w) => (
                     <text fg={theme.text}>
-                      {"  "}7d: {Math.round(w().pct * 100)}% {bar(w().pct)}{" "}
-                      <span
-                        style={{
-                          fg:
-                            w().status === "denied"
-                              ? theme.error
-                              : w().status.includes("warning")
-                                ? theme.warning
-                                : theme.success,
-                        }}
-                      >
-                        {w().status === "denied" ? "DENIED" : w().status.includes("warning") ? "WARN" : "OK"}
-                      </span>
-                      {fmtReset(w().reset) ? ` reset ${fmtReset(w().reset)}` : ""}
+                      {"  "}7d: {Math.round(w().pct * 100)}% {bar(w().pct)}
                     </text>
                   )}
                 </Show>
@@ -242,9 +253,9 @@ export function DialogStatus() {
                   )}
                 </Show>
               </box>
-            )}
-          </For>
-        </box>
+            )
+          }}
+        </For>
       </Show>
     </box>
   )

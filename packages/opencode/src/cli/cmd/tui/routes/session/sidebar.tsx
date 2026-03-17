@@ -5,12 +5,41 @@ import { useTheme } from "../../context/theme"
 import { Locale } from "@/util/locale"
 import path from "path"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
+import type { RateLimit } from "@/provider/ratelimit"
 import { Global } from "@/global"
 import { Installation } from "@/installation"
 import { useKeybind } from "../../context/keybind"
 import { useDirectory } from "../../context/directory"
 import { useKV } from "../../context/kv"
 import { TodoItem } from "../../component/todo-item"
+
+function label(id: string) {
+  if (id === "anthropic" || id.startsWith("anthropic")) return "Claude Code"
+  return id
+}
+
+function fmtReset(epoch: number) {
+  const diff = Math.ceil(epoch - Date.now() / 1000)
+  if (diff <= 0) return ""
+  if (diff < 3600) return `${Math.ceil(diff / 60)}m`
+  if (diff < 86400) {
+    const h = Math.floor(diff / 3600)
+    const m = Math.floor((diff % 3600) / 60)
+    return `${h}h ${m.toString().padStart(2, "0")}m`
+  }
+  return `${(diff / 86400).toFixed(1)}d`
+}
+
+function status(info: RateLimit.Info) {
+  const windows = [info.utilization?.window5h, info.utilization?.window7d].filter(Boolean)
+  const val = windows.reduce((acc, w) => {
+    if (w!.status === "denied") return "denied"
+    if (w!.status.includes("warning") && acc !== "denied") return "warning"
+    return acc
+  }, "ok" as string)
+  const reset = windows.reduce((min, w) => (w!.reset && w!.reset < min ? w!.reset : min), Infinity)
+  return { val, reset }
+}
 
 export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
   const sync = useSync()
@@ -25,7 +54,10 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
     diff: true,
     todo: true,
     lsp: true,
+    limits: true,
   })
+
+  const limits = createMemo(() => Object.values(sync.data.ratelimit ?? {}))
 
   // Sort MCP servers alphabetically for consistent display order
   const mcpEntries = createMemo(() => Object.entries(sync.data.mcp).sort(([a], [b]) => a.localeCompare(b)))
@@ -119,11 +151,108 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                   <b>Cache Audit</b>
                 </text>
                 <text fg={theme.textMuted}>{context()!.cacheInput.toLocaleString()} input tokens</text>
-                <text fg={theme.textMuted}>  {context()!.cacheNew.toLocaleString()} new</text>
-                <text fg={theme.textMuted}>  {context()!.cacheRead.toLocaleString()} cache read</text>
-                <text fg={theme.textMuted}>  {context()!.cacheWrite.toLocaleString()} cache write</text>
+                <text fg={theme.textMuted}> {context()!.cacheNew.toLocaleString()} new</text>
+                <text fg={theme.textMuted}> {context()!.cacheRead.toLocaleString()} cache read</text>
+                <text fg={theme.textMuted}> {context()!.cacheWrite.toLocaleString()} cache write</text>
                 <text fg={theme.textMuted}>{context()!.cacheHitPercent}% hit rate</text>
                 <text fg={theme.textMuted}>{context()!.cacheOutput.toLocaleString()} output tokens</text>
+              </box>
+            </Show>
+            <Show when={limits().length > 0}>
+              <box>
+                <box flexDirection="row" gap={1} onMouseDown={() => setExpanded("limits", !expanded.limits)}>
+                  <text fg={theme.text}>{expanded.limits ? "▼" : "▶"}</text>
+                  <text fg={theme.text}>
+                    <b>{limits().length === 1 ? label(limits()[0].providerID) + " Limits" : "Limits"}</b>
+                    <Show when={!expanded.limits && limits().length > 0}>
+                      {(() => {
+                        const s = status(limits()[0])
+                        return (
+                          <span
+                            style={{
+                              fg:
+                                s.val === "denied" ? theme.error : s.val === "warning" ? theme.warning : theme.success,
+                            }}
+                          >
+                            {" "}
+                            {s.val === "denied" ? "✕ DENIED" : s.val === "warning" ? "⚠ WARN" : "● OK"}
+                          </span>
+                        )
+                      })()}
+                    </Show>
+                  </text>
+                </box>
+                <Show when={expanded.limits}>
+                  <For each={limits()}>
+                    {(info) => {
+                      const s = () => status(info)
+                      return (
+                        <box>
+                          <Show when={limits().length > 1}>
+                            <text fg={theme.textMuted}>
+                              {"  "}
+                              {label(info.providerID)}
+                            </text>
+                          </Show>
+                          <Show when={info.utilization}>
+                            <text fg={theme.text}>
+                              {"  "}
+                              <span
+                                style={{
+                                  fg:
+                                    s().val === "denied"
+                                      ? theme.error
+                                      : s().val === "warning"
+                                        ? theme.warning
+                                        : theme.success,
+                                }}
+                              >
+                                {s().val === "denied" ? "✕ DENIED" : s().val === "warning" ? "⚠ WARN" : "● OK"}
+                              </span>
+                              <Show when={fmtReset(s().reset)}>
+                                <span style={{ fg: theme.textMuted }}>
+                                  {"  resets in "}
+                                  {fmtReset(s().reset)}
+                                </span>
+                              </Show>
+                            </text>
+                          </Show>
+                          <Show when={info.utilization?.window5h}>
+                            {(w) => {
+                              const pct = () => Math.round(w().pct * 100)
+                              const filled = () => Math.round(w().pct * 12)
+                              return (
+                                <text fg={theme.text}>
+                                  {"  "}5h {pct().toString().padStart(3)}%{" "}
+                                  {"[" + "#".repeat(filled()) + ".".repeat(12 - filled()) + "]"}
+                                </text>
+                              )
+                            }}
+                          </Show>
+                          <Show when={info.utilization?.window7d}>
+                            {(w) => {
+                              const pct = () => Math.round(w().pct * 100)
+                              const filled = () => Math.round(w().pct * 12)
+                              return (
+                                <text fg={theme.text}>
+                                  {"  "}7d {pct().toString().padStart(3)}%{" "}
+                                  {"[" + "#".repeat(filled()) + ".".repeat(12 - filled()) + "]"}
+                                </text>
+                              )
+                            }}
+                          </Show>
+                          <Show when={info.requests}>
+                            {(req) => (
+                              <text fg={theme.textMuted}>
+                                {"  "}RPM {req().remaining}/{req().limit}
+                              </text>
+                            )}
+                          </Show>
+                        </box>
+                      )
+                    }}
+                  </For>
+                </Show>
               </box>
             </Show>
             <Show when={mcpEntries().length > 0}>
@@ -341,7 +470,9 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
             {(plugin) => (
               <text fg={theme.textMuted}>
                 <span style={{ fg: theme.success }}>•</span>{" "}
-                <span>{plugin.name} {plugin.local}</span>
+                <span>
+                  {plugin.name} {plugin.local}
+                </span>
                 {plugin.latest && plugin.latest !== plugin.local && !plugin.builtin ? (
                   <span style={{ fg: theme.warning }}>{` ↑ ${plugin.latest}`}</span>
                 ) : plugin.builtin && plugin.latest ? (
