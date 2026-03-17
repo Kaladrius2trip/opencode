@@ -436,10 +436,22 @@ export namespace SessionPrompt {
             } satisfies MessageV2.ToolPart)) as MessageV2.ToolPart
           },
           async ask(req) {
+            const ruleset = PermissionNext.merge(taskAgent.permission, session.permission ?? [])
+            const result = await Plugin.trigger(
+              "permission.ask",
+              { id: "", sessionID, ...req },
+              { status: "allow" as PermissionNext.Action },
+            )
             await PermissionNext.ask({
               ...req,
-              sessionID: sessionID,
-              ruleset: PermissionNext.merge(taskAgent.permission, session.permission ?? []),
+              sessionID,
+              ruleset:
+                result.status === "ask"
+                  ? [
+                      ...ruleset,
+                      ...req.patterns.map((p) => ({ permission: req.permission, pattern: p, action: "ask" as const })),
+                    ]
+                  : ruleset,
             })
           },
         }
@@ -780,11 +792,24 @@ export namespace SessionPrompt {
         }
       },
       async ask(req) {
+        const ruleset = PermissionNext.merge(input.agent.permission, input.session.permission ?? [])
+        const tool = { messageID: input.processor.message.id, callID: options.toolCallId }
+        const result = await Plugin.trigger(
+          "permission.ask",
+          { id: "", sessionID: input.session.id, tool, ...req },
+          { status: "allow" as PermissionNext.Action },
+        )
         await PermissionNext.ask({
           ...req,
           sessionID: input.session.id,
-          tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: PermissionNext.merge(input.agent.permission, input.session.permission ?? []),
+          tool,
+          ruleset:
+            result.status === "ask"
+              ? [
+                  ...ruleset,
+                  ...req.patterns.map((p) => ({ permission: req.permission, pattern: p, action: "ask" as const })),
+                ]
+              : ruleset,
         })
       },
     })
