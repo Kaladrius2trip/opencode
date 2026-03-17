@@ -237,6 +237,99 @@ SQLite via Drizzle ORM. Tables: AccountTable, AccountStateTable, ControlAccountT
 Key events: session.created/updated/deleted/diff/error, message.updated/removed, message.part.updated/delta/removed, permission.asked/replied, server.instance.disposed.
 </bus_system>
 
+<effect_patterns>
+**Effect-TS runtime** (`effect/runtime.ts`):
+
+```ts
+export const runtime = ManagedRuntime.make(
+  Layer.mergeAll(AccountService.defaultLayer, AuthService.defaultLayer, PermissionService.layer, QuestionService.layer),
+)
+```
+
+**Service pattern** (used by 6 services):
+
+```ts
+export class MyService extends ServiceMap.Service<MyService, MyService.Service>()("@opencode/MyName") {
+  static defaultLayer = Layer.effect(MyService, ...)
+}
+```
+
+Services: AccountService, AccountRepo, AuthService, PermissionService, QuestionService, ProviderAuthService.
+
+**Effect conventions** (from AGENTS.md):
+
+- Use `Schema.Class` for multi-field data types, `Schema.brand` for single-value types
+- Use `Schema.TaggedErrorClass` for typed errors, `Schema.Defect` for defect-like causes
+- Use `Effect.gen(function* () { ... })` for composition
+- Use `Effect.fn("ServiceName.method")` for named/traced effects, `Effect.fnUntraced` for internal helpers
+- Prefer `yield* new MyError(...)` over `yield* Effect.fail(new MyError(...))` for early failures
+- Prefer `DateTime.nowAsDate` over `new Date(yield* Clock.currentTimeMillis)`
+- In `Layer.effect`, always return `ServiceName.of({ ... })`, never a plain object
+  </effect_patterns>
+
+<mcp_integration>
+**MCP** (`mcp/index.ts`) — Model Context Protocol client integration:
+
+**Transport types**: StdioClientTransport (local), StreamableHTTPClientTransport + SSEClientTransport (remote)
+
+**Connection flow**:
+
+1. Config `mcp` entries define servers (local: command[], remote: url)
+2. `MCP.state()` uses `Instance.state()` to initialize all clients in parallel
+3. Each client: create Client → connect transport → listTools → register notification handlers
+4. Failed connections stored with Status: `connected` | `disabled` | `failed` | `needs_auth` | `needs_client_registration`
+
+**Tool bridging**: `MCP.tools()` → for each connected client, `client.listTools()` → `convertMcpTool()` wraps each as AI SDK `dynamicTool` with sanitized name `{client}_{tool}`
+
+**OAuth**: McpOAuthProvider handles PKCE flow, McpOAuthCallback runs local callback server, McpAuth persists tokens
+
+**Prompts & Resources**: `MCP.prompts()` / `MCP.resources()` aggregate from all connected clients with `{client}:{name}` keys
+
+**Events**: `MCP.ToolsChanged` (BusEvent), `MCP.BrowserOpenFailed` (BusEvent)
+
+**Cleanup**: On dispose, kills descendant process trees (pgrep -P) before closing clients
+</mcp_integration>
+
+<tui_architecture>
+**TUI** (`cli/cmd/tui/`) — SolidJS terminal UI using @opentui/solid:
+
+**Provider tree** (app.tsx, nested inside-out):
+ErrorBoundary → ArgsProvider → ExitProvider → KVProvider → ToastProvider → RouteProvider → TuiConfigProvider → SDKProvider → SyncProvider → ThemeProvider → LocalProvider → KeybindProvider → PromptStashProvider → DialogProvider → CommandProvider → FrecencyProvider → PromptHistoryProvider → PromptRefProvider → App
+
+**Context providers** (14 in `context/`):
+| Context | Purpose |
+|---------|---------|
+| `sdk` | HTTP client + SSE event source to opencode server |
+| `sync` | Reactive store syncing all server state (sessions, messages, parts, providers, agents, MCPs, ratelimit, config) |
+| `local` | Local UI state (selected agent, model, variant) |
+| `route` | Navigation (home \| session) |
+| `theme` | Theme colors + dark/light mode |
+| `keybind` | Key binding registry |
+| `kv` | Persistent key-value store for UI preferences |
+| `args` | CLI argument passthrough |
+| `exit` | Cleanup + exit handler |
+| `prompt` | Prompt textarea ref sharing |
+| `tui-config` | TUI-specific config (toolbar position, sidebar) |
+
+**Sync store** (`context/sync.tsx`):
+
+- Central reactive store with SolidJS `createStore` + `produce`/`reconcile`
+- Subscribes to SSE events from SDK, updates store on each event type
+- Handles: sessions, messages, parts, todos, permissions, questions, providers, agents, MCPs, lsp, formatter, ratelimit, vcs, config, workspaces
+- Bootstrap: fetches initial state in phases (blocking: config/providers/agents, non-blocking: sessions/messages)
+- Exposes helper: `sync.session.get(id)`, `sync.data.*`
+
+**Routes**: `home.tsx` (session list + new session), `session/` (active session with sidebar, header, footer, message list, permission/question dialogs)
+
+**Components** (`component/`):
+
+- Dialogs: dialog-agent, dialog-command, dialog-mcp, dialog-model, dialog-provider, dialog-session-list, dialog-status, dialog-theme-list, dialog-workspace-list
+- Prompt: prompt/ (textarea, autocomplete, history, frecency, stash)
+- UI primitives: spinner, border, logo, tips, todo-item
+
+**Rendering**: @opentui/solid with `render()`, 60fps target, Kitty keyboard protocol, mouse support, terminal title management
+</tui_architecture>
+
 </internals>
 
 <style>
@@ -312,7 +405,32 @@ This fork tracks `upstream` remote (anomalyco/opencode), personal fork at `origi
 6. Push to origin
 
 **Upstream velocity**: ~2 releases/day, 10k+ commits, 460+ contributors. Expect frequent conflicts.
-</fork_context>
+
+**Fork diff map** (83 files, ~5154 additions vs upstream):
+
+Core fork modifications:
+
+- `src/plugin/anthropic.ts` (+322) — Vendored Anthropic auth plugin with PKCE OAuth, single-flight token refresh mutex, system prompt rewriting ("OpenCode" → "Claude Code"), tool name prefixing (mcp\_), fetch wrapper with bearer auth
+- `src/provider/ratelimit.ts` (+121) — RateLimit namespace: parses Anthropic rate limit headers (requests/tokens/input/output + unified utilization 5h/7d windows), publishes `ratelimit.updated` BusEvent, Instance.state storage
+- `src/provider/transform.ts` (+13) — Hooks into provider response to call RateLimit.parse on response headers
+- `src/cli/cmd/tui/component/dialog-status.tsx` (+84) — Extended status dialog with rate limit display
+- `src/cli/cmd/tui/routes/session/sidebar.tsx` (+36) — Limits section with collapsible progress bars showing utilization %, denied/warning/ok status, reset timers
+- `src/cli/cmd/tui/context/sync.tsx` (+7) — Added `ratelimit` field to sync store, handles ratelimit.updated events
+- `src/installation/index.ts` (+49) — Fork version handling, update notifications referencing upstream vs fork
+- `src/cli/cmd/upgrade.ts` (+2) — Fork-aware upgrade logic
+- `src/cli/upgrade.ts` (+67) — Custom upgrade flow for fork
+- `packages/app/src/components/status-popover.tsx` (+207) — Web UI rate limit display
+
+**High-conflict zones** during upstream sync:
+
+1. `src/plugin/index.ts` — Internal plugin list modifications
+2. `src/plugin/anthropic.ts` — Entire file is fork-only, upstream may add their own version
+3. `src/provider/` — auth-service.ts, auth.ts, error.ts, transform.ts all modified
+4. `src/cli/cmd/tui/` — app.tsx, sidebar.tsx, dialog-status.tsx modified
+5. `src/session/` — processor.ts, llm.ts, prompt.ts, message-v2.ts modified
+6. `src/effect/` — runtime.ts diverged (upstream removed instance-context/registry/instances)
+7. `packages/sdk/` — openapi.json, types.gen.ts diverged
+   </fork_context>
 
 <extension_first>
 Before modifying core OpenCode code, ALWAYS evaluate if the change can be:
