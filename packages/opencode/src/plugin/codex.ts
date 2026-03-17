@@ -8,6 +8,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { setTimeout as sleep } from "node:timers/promises"
 
 const log = Log.create({ service: "plugin.codex" })
+let inflight: Promise<void> | null = null
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const ISSUER = "https://auth.openai.com"
@@ -431,29 +432,51 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
               }
             }
 
-            const currentAuth = await getAuth()
+            let currentAuth = await getAuth()
             if (currentAuth.type !== "oauth") return fetch(requestInput, init)
 
-            // Cast to include accountId field
             const authWithAccount = currentAuth as typeof currentAuth & { accountId?: string }
 
-            // Check if token needs refresh
             if (!currentAuth.access || currentAuth.expires < Date.now()) {
-              log.info("refreshing codex access token")
-              const tokens = await refreshAccessToken(currentAuth.refresh)
-              const newAccountId = extractAccountId(tokens) || authWithAccount.accountId
-              await input.client.auth.set({
-                path: { id: "openai" },
-                body: {
-                  type: "oauth",
-                  refresh: tokens.refresh_token,
-                  access: tokens.access_token,
-                  expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-                  ...(newAccountId && { accountId: newAccountId }),
-                },
-              })
-              currentAuth.access = tokens.access_token
-              authWithAccount.accountId = newAccountId
+              if (inflight) {
+                await inflight.catch(() => {})
+                currentAuth = await getAuth()
+                if (currentAuth.type !== "oauth") return fetch(requestInput, init)
+              }
+
+              if (!currentAuth.access || currentAuth.expires < Date.now()) {
+                inflight = (async () => {
+                  try {
+                    log.info("refreshing codex access token")
+                    const tokens = await refreshAccessToken(currentAuth.refresh)
+                    const aid = extractAccountId(tokens) || authWithAccount.accountId
+                    await input.client.auth.set({
+                      path: { id: "openai" },
+                      body: {
+                        type: "oauth",
+                        refresh: tokens.refresh_token,
+                        access: tokens.access_token,
+                        expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+                        ...(aid && { accountId: aid }),
+                      },
+                    })
+                  } catch {
+                    const retry = await getAuth()
+                    if (retry.type === "oauth" && retry.access && retry.expires > Date.now()) {
+                      log.info("codex refresh failed but storage has fresh token")
+                      return
+                    }
+                    throw new Error("Codex token refresh failed and no fresh token in storage")
+                  } finally {
+                    inflight = null
+                  }
+                })()
+                await inflight
+              }
+
+              currentAuth = await getAuth()
+              if (currentAuth.type !== "oauth") return fetch(requestInput, init)
+              Object.assign(authWithAccount, currentAuth)
             }
 
             // Build headers
