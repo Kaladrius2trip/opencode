@@ -6,7 +6,6 @@ import { OAUTH_DUMMY_KEY } from "../auth"
 
 const log = Log.create({ service: "plugin.anthropic" })
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-const TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 const SCOPES =
   "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
@@ -15,6 +14,14 @@ const SYSTEM_REPLACE_FROM = "You are OpenCode, the best coding agent on the plan
 const SYSTEM_REPLACE_TO = "You are Claude Code, Anthropic's official CLI for Claude."
 
 let inflight: Promise<void> | null = null
+
+function tokenUrl(mode: "max" | "console") {
+  return `https://${mode === "console" ? "console.anthropic.com" : "claude.ai"}/oauth/token`
+}
+
+function form(data: Record<string, string>) {
+  return new URLSearchParams(data).toString()
+}
 
 async function authorize(mode: "max" | "console") {
   const pkce = await generatePKCE()
@@ -28,15 +35,15 @@ async function authorize(mode: "max" | "console") {
   url.searchParams.set("code_challenge", pkce.challenge)
   url.searchParams.set("code_challenge_method", "S256")
   url.searchParams.set("state", pkce.verifier)
-  return { url: url.toString(), verifier: pkce.verifier }
+  return { url: url.toString(), verifier: pkce.verifier, mode }
 }
 
-async function exchange(code: string, verifier: string) {
+async function exchange(code: string, verifier: string, mode: "max" | "console") {
   const splits = code.split("#")
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetch(tokenUrl(mode), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form({
       code: splits[0],
       state: splits[1],
       grant_type: "authorization_code",
@@ -60,30 +67,38 @@ async function refresh(
   sdk: PluginInput["client"],
 ): Promise<{ access: string; refresh: string; expires: number }> {
   log.info("refreshing anthropic access token")
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: token,
-      client_id: CLIENT_ID,
-    }),
+  const body = form({
+    grant_type: "refresh_token",
+    refresh_token: token,
+    client_id: CLIENT_ID,
   })
-  if (!res.ok) {
-    const body = await res.text().catch(() => "")
-    log.error("anthropic token refresh failed", { status: res.status, body })
-    throw new Error(`Token refresh failed: ${res.status}`)
+  const urls = [tokenUrl("max"), tokenUrl("console")]
+  let err = ""
+  for (const url of urls) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      err = `${url} ${res.status}${text ? ` ${text}` : ""}`
+      log.warn("anthropic token refresh attempt failed", { url, status: res.status, body: text })
+      continue
+    }
+    const json = (await res.json()) as { refresh_token: string; access_token: string; expires_in: number }
+    const state = {
+      type: "oauth" as const,
+      refresh: json.refresh_token,
+      access: json.access_token,
+      expires: Date.now() + json.expires_in * 1000 - 5 * 60 * 1000,
+    }
+    await sdk.auth.set({ path: { id: "anthropic" }, body: state })
+    log.info("anthropic token refreshed successfully", { url })
+    return state
   }
-  const json = (await res.json()) as { refresh_token: string; access_token: string; expires_in: number }
-  const state = {
-    type: "oauth" as const,
-    refresh: json.refresh_token,
-    access: json.access_token,
-    expires: Date.now() + json.expires_in * 1000 - 5 * 60 * 1000,
-  }
-  await sdk.auth.set({ path: { id: "anthropic" }, body: state })
-  log.info("anthropic token refreshed successfully")
-  return state
+  log.error("anthropic token refresh failed", { error: err || "all refresh endpoints failed" })
+  throw new Error("Token refresh failed: 400")
 }
 
 // Single-flight refresh: serializes concurrent callers, re-reads storage on 400 fallback
@@ -284,7 +299,7 @@ export async function AnthropicAuthPlugin(input: PluginInput): Promise<Hooks> {
               url: auth.url,
               instructions: "Paste the authorization code here: ",
               method: "code" as const,
-              callback: async (code: string) => exchange(code, auth.verifier),
+              callback: async (code: string) => exchange(code, auth.verifier, auth.mode),
             }
           },
         },
@@ -298,7 +313,7 @@ export async function AnthropicAuthPlugin(input: PluginInput): Promise<Hooks> {
               instructions: "Paste the authorization code here: ",
               method: "code" as const,
               callback: async (code: string) => {
-                const creds = await exchange(code, auth.verifier)
+                const creds = await exchange(code, auth.verifier, auth.mode)
                 if (creds.type === "failed") return creds
                 const result = await fetch("https://api.anthropic.com/api/oauth/claude_cli/create_api_key", {
                   method: "POST",

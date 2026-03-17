@@ -29,11 +29,13 @@ const log = Log.create({ service: "db" })
 
 export namespace Database {
   export const Path = iife(() => {
+    const shared = path.join(Global.Path.data, "opencode.db")
     const channel = Installation.CHANNEL
-    if (["latest", "beta"].includes(channel) || Flag.OPENCODE_DISABLE_CHANNEL_DB)
-      return path.join(Global.Path.data, "opencode.db")
+    if (["latest", "beta"].includes(channel) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return shared
     const safe = channel.replace(/[^a-zA-Z0-9._-]/g, "-")
-    return path.join(Global.Path.data, `opencode-${safe}.db`)
+    const custom = path.join(Global.Path.data, `opencode-${safe}.db`)
+    if (existsSync(shared)) return shared
+    return custom
   })
 
   type Schema = typeof schema
