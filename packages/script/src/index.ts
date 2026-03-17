@@ -33,7 +33,17 @@ const IS_PREVIEW = CHANNEL !== "latest"
 
 const VERSION = await (async () => {
   if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
-  if (IS_PREVIEW) return `0.0.0-${CHANNEL}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}`
+  if (IS_PREVIEW) {
+    const tag = await $`git describe --tags --abbrev=0`
+      .text()
+      .then((x) => x.trim().replace(/^v/, ""))
+      .catch(() => "0.0.0")
+    const sha = await $`git rev-parse --short HEAD`
+      .text()
+      .then((x) => x.trim())
+      .catch(() => "unknown")
+    return `${tag}-fork+${sha}`
+  }
   const version = await fetch("https://registry.npmjs.org/opencode-ai/latest")
     .then((res) => {
       if (!res.ok) throw new Error(res.statusText)
