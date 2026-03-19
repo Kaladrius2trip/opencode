@@ -88,7 +88,8 @@ async function refresh(
   const urls = [tokenUrl("max"), tokenUrl("console")]
   let err = ""
   let stale = false
-  for (const pass of [0, 1]) {
+  const MAX_PASSES = 4
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
     for (const url of urls) {
       const res = await fetch(url, {
         method: "POST",
@@ -98,8 +99,15 @@ async function refresh(
       if (!res.ok) {
         const text = await res.text().catch(() => "")
         err = `${url} ${res.status}${text ? ` ${text}` : ""}`
-        stale = stale || expired(text)
-        log.warn("anthropic token refresh attempt failed", { url, status: res.status, body: text, pass })
+        if (res.status === 429) {
+          const after = res.headers.get("retry-after")
+          const delay = after ? Math.min(Number(after) * 1000, 10_000) : RETRY_MS * 2 ** pass
+          log.warn("anthropic token refresh rate limited", { url, pass, delay })
+          await sleep(delay)
+        } else {
+          stale = stale || expired(text)
+          log.warn("anthropic token refresh attempt failed", { url, status: res.status, body: text, pass })
+        }
         continue
       }
       const json = (await res.json()) as { refresh_token: string; access_token: string; expires_in: number }
@@ -115,12 +123,12 @@ async function refresh(
       log.info("anthropic token refreshed successfully", { url, pass })
       return state
     }
-    if (pass === 0 && !stale) {
-      log.info("retrying anthropic token refresh after transient failure", { delay: RETRY_MS })
-      await sleep(RETRY_MS)
-      continue
+    if (stale) break
+    if (pass < MAX_PASSES - 1) {
+      const delay = RETRY_MS * 2 ** pass
+      log.info("retrying anthropic token refresh", { delay, pass })
+      await sleep(delay)
     }
-    break
   }
   log.error("anthropic token refresh failed", { error: err || "all refresh endpoints failed" })
   if (stale) {
@@ -128,7 +136,7 @@ async function refresh(
       "Anthropic OAuth expired. Reconnect the provider with `opencode providers login --provider anthropic`.",
     )
   }
-  throw new Error("Token refresh failed: 400")
+  throw new Error(`Token refresh failed: ${err}`)
 }
 
 // Single-flight refresh: serializes concurrent callers, re-reads storage on 400 fallback
