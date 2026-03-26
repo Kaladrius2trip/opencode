@@ -302,13 +302,13 @@ export function StatusPopover() {
   const pluginEmpty = createMemo(() => pluginEmptyMessage(language.t("dialog.plugins.empty"), "opencode.json"))
   const limits = createMemo(() => Object.values(sync.data.ratelimit ?? {}))
   const limitsCount = createMemo(() => limits().length)
-  const overallHealthy = createMemo(() => {
+  const ready = createMemo(() => server.healthy() === false || sync.data.mcp_ready)
+  const healthy = createMemo(() => {
     const serverHealthy = server.healthy() === true
-    const anyMcpIssue = mcpNames().some((name) => {
-      const status = mcpStatus(name)
-      return status !== "connected" && status !== "disabled"
-    })
-    return serverHealthy && !anyMcpIssue
+    const issue = Object.values(sync.data.mcp ?? {}).some(
+      (item) => item.status !== "connected" && item.status !== "disabled",
+    )
+    return serverHealthy && !issue
   })
 
   return (
@@ -330,9 +330,9 @@ export function StatusPopover() {
           <div
             classList={{
               "absolute -top-px -right-px size-1.5 rounded-full": true,
-              "bg-icon-success-base": overallHealthy(),
-              "bg-icon-critical-base": !overallHealthy() && server.healthy() !== undefined,
-              "bg-border-weak-base": server.healthy() === undefined,
+              "bg-icon-success-base": ready() && healthy(),
+              "bg-icon-critical-base": server.healthy() === false || (ready() && !healthy()),
+              "bg-border-weak-base": server.healthy() === undefined || !ready(),
             }}
           />
         </div>

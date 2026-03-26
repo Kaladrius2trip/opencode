@@ -13,6 +13,7 @@ import { fn } from "@/util/fn"
 import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
+import { NotFoundError } from "@/storage/db"
 import { ProviderTransform } from "@/provider/transform"
 import { ModelID, ProviderID } from "@/provider/schema"
 
@@ -60,7 +61,11 @@ export namespace SessionCompaction {
     const config = await Config.get()
     if (config.compaction?.prune === false) return
     log.info("pruning")
-    const msgs = await Session.messages({ sessionID: input.sessionID })
+    const msgs = await Session.messages({ sessionID: input.sessionID }).catch((err) => {
+      if (NotFoundError.isInstance(err)) return undefined
+      throw err
+    })
+    if (!msgs) return
     let total = 0
     let pruned = 0
     const toPrune = []
@@ -200,6 +205,8 @@ When constructing the summary, try to stick to this template:
 ---`
 
     const promptText = compacting.prompt ?? [defaultPrompt, ...compacting.context].join("\n\n")
+    const msgs = structuredClone(messages)
+    await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
     const result = await processor.process({
       user: userMessage,
       agent,
@@ -208,7 +215,7 @@ When constructing the summary, try to stick to this template:
       tools: {},
       system: [],
       messages: [
-        ...MessageV2.toModelMessages(messages, model, { stripMedia: true }),
+        ...MessageV2.toModelMessages(msgs, model, { stripMedia: true }),
         {
           role: "user",
           content: [
