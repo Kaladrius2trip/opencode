@@ -600,6 +600,17 @@ export namespace MessageV2 {
       return false
     })()
 
+    const limit = iife(() => {
+      switch (model.api.npm) {
+        case "@ai-sdk/anthropic":
+        case "@ai-sdk/amazon-bedrock":
+        case "@ai-sdk/google-vertex/anthropic":
+          return 5_242_880
+        default:
+          return 20_000_000
+      }
+    })
+
     const toModelOutput = (output: unknown) => {
       if (typeof output === "string") {
         return { type: "text", value: output }
@@ -618,14 +629,19 @@ export namespace MessageV2 {
           type: "content",
           value: [
             { type: "text", text: outputObject.text },
-            ...attachments.map((attachment) => ({
-              type: "media",
-              mediaType: attachment.mime,
-              data: iife(() => {
-                const commaIndex = attachment.url.indexOf(",")
-                return commaIndex === -1 ? attachment.url : attachment.url.slice(commaIndex + 1)
-              }),
-            })),
+            ...attachments.map((attachment) => {
+              const idx = attachment.url.indexOf(",")
+              const data = idx === -1 ? attachment.url : attachment.url.slice(idx + 1)
+              if (data.length > limit) {
+                const sizeMB = (data.length / (1024 * 1024)).toFixed(1)
+                const limitMB = (limit / (1024 * 1024)).toFixed(0)
+                return {
+                  type: "text",
+                  text: `[Media too large: ${sizeMB} MB base64, provider limit is ${limitMB} MB]`,
+                }
+              }
+              return { type: "media", mediaType: attachment.mime, data }
+            }),
           ],
         }
       }

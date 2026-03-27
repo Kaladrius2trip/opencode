@@ -58,6 +58,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
   })
 
   const limits = createMemo(() => Object.values(sync.data.ratelimit ?? {}))
+  const worst = createMemo(() => (limits().length > 0 ? status(limits()[0]) : { val: "ok", reset: Infinity }))
 
   // Sort MCP servers alphabetically for consistent display order
   const mcpEntries = createMemo(() => Object.entries(sync.data.mcp).sort(([a], [b]) => a.localeCompare(b)))
@@ -184,73 +185,77 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                 </box>
                 <Show when={expanded.limits}>
                   <For each={limits()}>
-                    {(info) => {
-                      const s = () => status(info)
-                      return (
-                        <box>
-                          <Show when={limits().length > 1}>
-                            <text fg={theme.textMuted}>
-                              {"  "}
-                              {label(info.providerID)}
-                            </text>
-                          </Show>
-                          <Show when={info.utilization}>
-                            <text fg={theme.text}>
-                              {"  "}
-                              <span
-                                style={{
-                                  fg:
-                                    s().val === "denied"
-                                      ? theme.error
-                                      : s().val === "warning"
-                                        ? theme.warning
-                                        : theme.success,
-                                }}
-                              >
-                                {s().val === "denied" ? "✕ DENIED" : s().val === "warning" ? "⚠ WARN" : "● OK"}
-                              </span>
-                              <Show when={fmtReset(s().reset)}>
-                                <span style={{ fg: theme.textMuted }}>
-                                  {"  resets in "}
-                                  {fmtReset(s().reset)}
+                    {(info) => (
+                      <box>
+                        <Show when={limits().length > 1}>
+                          <text fg={theme.textMuted}>
+                            {"  "}
+                            {label(info.providerID)}
+                          </text>
+                        </Show>
+                        <Show when={info.utilization?.window5h}>
+                          {(w) => {
+                            const pct = () => Math.round(w().pct * 100)
+                            const filled = () => Math.round(w().pct * 12)
+                            return (
+                              <text fg={theme.text}>
+                                {"  "}5h {pct().toString().padStart(3)}%{" "}
+                                {"[" + "#".repeat(filled()) + ".".repeat(12 - filled()) + "]"}{" "}
+                                <span
+                                  style={{
+                                    fg:
+                                      w().status === "denied"
+                                        ? theme.error
+                                        : w().status.includes("warning")
+                                          ? theme.warning
+                                          : theme.success,
+                                  }}
+                                >
+                                  {w().status === "denied" ? "DENY" : w().status.includes("warning") ? "WARN" : "OK"}
                                 </span>
-                              </Show>
-                            </text>
-                          </Show>
-                          <Show when={info.utilization?.window5h}>
-                            {(w) => {
-                              const pct = () => Math.round(w().pct * 100)
-                              const filled = () => Math.round(w().pct * 12)
-                              return (
-                                <text fg={theme.text}>
-                                  {"  "}5h {pct().toString().padStart(3)}%{" "}
-                                  {"[" + "#".repeat(filled()) + ".".repeat(12 - filled()) + "]"}
-                                </text>
-                              )
-                            }}
-                          </Show>
-                          <Show when={info.utilization?.window7d}>
-                            {(w) => {
-                              const pct = () => Math.round(w().pct * 100)
-                              const filled = () => Math.round(w().pct * 12)
-                              return (
-                                <text fg={theme.text}>
-                                  {"  "}7d {pct().toString().padStart(3)}%{" "}
-                                  {"[" + "#".repeat(filled()) + ".".repeat(12 - filled()) + "]"}
-                                </text>
-                              )
-                            }}
-                          </Show>
-                          <Show when={info.requests}>
-                            {(req) => (
-                              <text fg={theme.textMuted}>
-                                {"  "}RPM {req().remaining}/{req().limit}
+                                <Show when={fmtReset(w().reset)}>
+                                  <span style={{ fg: theme.textMuted }}> {fmtReset(w().reset)}</span>
+                                </Show>
                               </text>
-                            )}
-                          </Show>
-                        </box>
-                      )
-                    }}
+                            )
+                          }}
+                        </Show>
+                        <Show when={info.utilization?.window7d}>
+                          {(w) => {
+                            const pct = () => Math.round(w().pct * 100)
+                            const filled = () => Math.round(w().pct * 12)
+                            return (
+                              <text fg={theme.text}>
+                                {"  "}7d {pct().toString().padStart(3)}%{" "}
+                                {"[" + "#".repeat(filled()) + ".".repeat(12 - filled()) + "]"}{" "}
+                                <span
+                                  style={{
+                                    fg:
+                                      w().status === "denied"
+                                        ? theme.error
+                                        : w().status.includes("warning")
+                                          ? theme.warning
+                                          : theme.success,
+                                  }}
+                                >
+                                  {w().status === "denied" ? "DENY" : w().status.includes("warning") ? "WARN" : "OK"}
+                                </span>
+                                <Show when={fmtReset(w().reset)}>
+                                  <span style={{ fg: theme.textMuted }}> {fmtReset(w().reset)}</span>
+                                </Show>
+                              </text>
+                            )
+                          }}
+                        </Show>
+                        <Show when={info.requests}>
+                          {(req) => (
+                            <text fg={theme.textMuted}>
+                              {"  "}RPM {req().remaining}/{req().limit}
+                            </text>
+                          )}
+                        </Show>
+                      </box>
+                    )}
                   </For>
                 </Show>
               </box>

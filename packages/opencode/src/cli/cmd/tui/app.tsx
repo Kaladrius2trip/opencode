@@ -199,6 +199,12 @@ export function tui(input: {
         },
       },
     )
+
+    // Force exit when terminal PTY is destroyed — OpenTUI's destroy() tears
+    // down rendering but async activities keep the event loop alive.
+    const die = () => process.exit(0)
+    process.on("SIGHUP", die)
+    process.stdout.on("error", die)
   })
 }
 
