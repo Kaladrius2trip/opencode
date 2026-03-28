@@ -20,8 +20,9 @@ function discoverPlugins(config: Awaited<ReturnType<typeof Config.getGlobal>>): 
   const configPlugins = config.plugin ?? []
 
   for (const entry of configPlugins) {
-    const lastAt = entry.lastIndexOf("@")
-    const name = lastAt > 0 ? entry.substring(0, lastAt) : entry
+    const spec = Config.pluginSpecifier(entry)
+    const lastAt = spec.lastIndexOf("@")
+    const name = lastAt > 0 ? spec.substring(0, lastAt) : spec
     if (name.includes("opencode-openai-codex-auth") || name.includes("opencode-copilot-auth")) continue
 
     let local = "?"
