@@ -216,15 +216,19 @@ async function ensure(
     const cliCreds = loadClaudeCliCredentials()
     if (cliCreds && cliCreds.access && cliCreds.expires > Date.now() + 5 * 60 * 1000) {
       log.info("using fresh token from Claude CLI credentials file")
-      await sdk.auth.set({
-        path: { id },
-        body: {
-          type: "oauth" as const,
-          access: cliCreds.access,
-          refresh: cliCreds.refresh,
-          expires: cliCreds.expires,
-        },
-      })
+      try {
+        await sdk.auth.set({
+          path: { id },
+          body: {
+            type: "oauth" as const,
+            access: cliCreds.access,
+            refresh: cliCreds.refresh,
+            expires: cliCreds.expires,
+          },
+        })
+      } catch (e) {
+        log.warn("failed to persist CLI credentials to storage", { error: e instanceof Error ? e.message : String(e) })
+      }
       return { access: cliCreds.access }
     }
   }
@@ -245,7 +249,7 @@ async function ensure(
         log.info("anthropic refresh failed but storage has fresh token, using it")
         return
       }
-      if (err instanceof Error && err.message.includes("Anthropic OAuth expired")) throw err
+      if (err instanceof Error && err.message.includes("Anthropic OAuth token expired")) throw err
       throw new Error("Token refresh failed and no fresh token in storage")
     } finally {
       inflight.delete(id)
