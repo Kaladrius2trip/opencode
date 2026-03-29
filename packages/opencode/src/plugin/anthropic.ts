@@ -133,13 +133,26 @@ async function refresh(
         const text = await res.text().catch(() => "")
         err = `${url} ${res.status}${text ? ` ${text}` : ""}`
         if (res.status === 429) {
-          const after = res.headers.get("retry-after")
-          const delay = after ? Math.min(Number(after) * 1000, 10_000) : RETRY_MS * 2 ** pass
-          log.warn("anthropic token refresh rate limited", { url, pass, delay })
+          const afterMs = res.headers.get("retry-after-ms")
+          const afterSec = res.headers.get("retry-after")
+          const delay = afterMs
+            ? Math.min(Number(afterMs), 30_000)
+            : afterSec
+              ? Math.min(Number(afterSec) * 1000, 30_000)
+              : RETRY_MS * 2 ** pass
+          log.warn("OAuth token endpoint rate-limited", { url, pass, delay, retryAfterMs: afterMs, retryAfterSec: afterSec })
           await sleep(delay)
         } else {
           stale = stale || expired(text)
-          log.warn("anthropic token refresh attempt failed", { url, status: res.status, body: text, pass })
+          if (expired(text)) {
+            log.error("OAuth refresh token expired or revoked", {
+              url,
+              status: res.status,
+              hint: "Re-authenticate via 'Claude Code (import from CLI)' or 'Claude Pro/Max' auth method",
+            })
+          } else {
+            log.warn("OAuth token refresh attempt failed", { url, status: res.status, body: text, pass })
+          }
         }
         continue
       }
@@ -163,13 +176,21 @@ async function refresh(
       await sleep(delay)
     }
   }
-  log.error("anthropic token refresh failed", { error: err || "all refresh endpoints failed" })
   if (stale) {
+    log.error("OAuth refresh token expired", { error: err })
     throw new Error(
-      "Anthropic OAuth expired. Reconnect the provider with `opencode providers login --provider anthropic`.",
+      "Anthropic OAuth token expired or revoked. Re-authenticate: use 'Claude Code (import from CLI)' or run `opencode providers login --provider anthropic`.",
     )
   }
-  throw new Error(`Token refresh failed: ${err}`)
+  log.error("OAuth token refresh failed after all retries", {
+    error: err || "all endpoints failed",
+    hint: "Rate limit on Anthropic's OAuth token endpoint (not the API). Try again shortly or re-import from Claude CLI.",
+  })
+  throw new Error(
+    `OAuth token refresh failed after ${MAX_PASSES} attempts. ` +
+      `Rate limited on Anthropic's OAuth token endpoint (not the API). ` +
+      `Try again in a few minutes, or re-import credentials from Claude CLI.`,
+  )
 }
 
 // Single-flight refresh: serializes concurrent callers, re-reads storage on 400 fallback
@@ -189,6 +210,24 @@ async function ensure(
   const auth = await getAuth()
   if (auth.type !== "oauth") return { access: "" }
   if (!force && auth.access && (auth.expires ?? 0) > Date.now()) return { access: auth.access }
+
+  // Try Claude CLI credentials before hitting the network (uses cached read)
+  if (!force) {
+    const cliCreds = loadClaudeCliCredentials()
+    if (cliCreds && cliCreds.access && cliCreds.expires > Date.now() + 5 * 60 * 1000) {
+      log.info("using fresh token from Claude CLI credentials file")
+      await sdk.auth.set({
+        path: { id },
+        body: {
+          type: "oauth" as const,
+          access: cliCreds.access,
+          refresh: cliCreds.refresh,
+          expires: cliCreds.expires,
+        },
+      })
+      return { access: cliCreds.access }
+    }
+  }
 
   const run = inflight.get(id)
   if (run) {
@@ -309,7 +348,26 @@ export async function AnthropicAuthPlugin(input: PluginInput): Promise<Hooks> {
       provider: "anthropic",
       async loader(getAuth, provider) {
         const id = (getAuth as typeof getAuth & { providerID?: string }).providerID ?? "anthropic"
-        const auth = await getAuth()
+        let auth = await getAuth()
+
+        // Auto-import Claude CLI credentials if no valid OAuth token exists
+        if (auth.type !== "oauth" || !auth.access || (auth.expires ?? 0) < Date.now()) {
+          const cliCreds = loadClaudeCliCredentials()
+          if (cliCreds && cliCreds.refresh && cliCreds.expires > Date.now()) {
+            log.info("auto-importing Claude CLI credentials", { expires: new Date(cliCreds.expires).toISOString() })
+            await sdk.auth.set({
+              path: { id },
+              body: {
+                type: "oauth" as const,
+                access: cliCreds.access,
+                refresh: cliCreds.refresh,
+                expires: cliCreds.expires,
+              },
+            })
+            auth = await getAuth()
+          }
+        }
+
         if (auth.type !== "oauth") return {}
 
         for (const model of Object.values(provider.models)) {
@@ -442,6 +500,29 @@ export async function AnthropicAuthPlugin(input: PluginInput): Promise<Hooks> {
         {
           label: "Manually enter API Key",
           type: "api",
+        },
+        {
+          label: "Claude Code (import from CLI)",
+          type: "oauth" as const,
+          authorize: async () => {
+            return {
+              url: "",
+              instructions: "Importing credentials from Claude CLI...",
+              method: "auto" as const,
+              callback: async () => {
+                const creds = loadClaudeCliCredentials()
+                if (!creds || !creds.refresh) {
+                  return { type: "failed" as const }
+                }
+                return {
+                  type: "success" as const,
+                  access: creds.access,
+                  refresh: creds.refresh,
+                  expires: creds.expires,
+                }
+              },
+            }
+          },
         },
       ],
     },
