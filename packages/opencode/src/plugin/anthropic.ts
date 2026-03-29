@@ -3,6 +3,9 @@ import { generatePKCE } from "@openauthjs/openauth/pkce"
 import { Log } from "../util/log"
 import { Installation } from "../installation"
 import { OAUTH_DUMMY_KEY } from "../auth"
+import fs from "node:fs"
+import path from "node:path"
+import os from "node:os"
 
 const log = Log.create({ service: "plugin.anthropic" })
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -32,6 +35,36 @@ function sleep(ms: number) {
 function expired(body: string) {
   const text = body.toLowerCase()
   return text.includes("invalid_grant") || text.includes("expired") || text.includes("revoked")
+}
+
+let _cliCredsCache: { access: string; refresh: string; expires: number } | null = null
+let _cliCredsCacheTime = 0
+const CLI_CREDS_TTL = 30_000 // 30 seconds
+
+function loadClaudeCliCredentials(): { access: string; refresh: string; expires: number } | null {
+  if (_cliCredsCache && Date.now() - _cliCredsCacheTime < CLI_CREDS_TTL) return _cliCredsCache
+  const credPath = process.env.CLAUDE_CREDENTIALS_PATH ?? path.join(os.homedir(), ".claude", ".credentials.json")
+  try {
+    if (!fs.existsSync(credPath)) return null
+    const raw = JSON.parse(fs.readFileSync(credPath, "utf8"))
+    const oauth = raw?.claudeAiOauth
+    if (!oauth || typeof oauth.refreshToken !== "string") return null
+    const expiresAt =
+      typeof oauth.expiresAt === "number"
+        ? oauth.expiresAt > 1e12
+          ? oauth.expiresAt
+          : oauth.expiresAt * 1000
+        : Date.now()
+    _cliCredsCache = {
+      access: typeof oauth.accessToken === "string" ? oauth.accessToken : "",
+      refresh: oauth.refreshToken,
+      expires: expiresAt,
+    }
+    _cliCredsCacheTime = Date.now()
+    return _cliCredsCache
+  } catch {
+    return null
+  }
 }
 
 async function authorize(mode: "max" | "console") {
