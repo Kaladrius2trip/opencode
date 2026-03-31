@@ -813,6 +813,32 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
   sdk.event.on("installation.update-available", async (evt) => {
     const version = evt.properties.version
+    Installation.setLatestUpstream(version)
+
+    // Local dev builds: just show latest upstream for reference, no auto-upgrade
+    if (Installation.isLocal()) {
+      toast.show({
+        variant: "info",
+        title: "Upstream Update",
+        message: `Upstream OpenCode v${version} available (local dev build). Rebuild to update.`,
+        duration: 10000,
+      })
+      return
+    }
+
+    // Fork builds: notify only, no auto-upgrade (would overwrite the fork binary)
+    const isFork = Installation.VERSION.includes("fork")
+    if (isFork) {
+      const base = Installation.VERSION.replace(/-fork.*$/, "")
+      if (version === base || !semver.gt(version, base)) return
+      toast.show({
+        variant: "info",
+        title: "Upstream Update",
+        message: `Upstream OpenCode v${version} available (fork base: v${base}). Rebuild fork to update.`,
+        duration: 10000,
+      })
+      return
+    }
 
     const skipped = kv.get("skipped_version")
     if (skipped && !semver.gt(version, skipped)) return
@@ -833,11 +859,8 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
     toast.show({
       variant: "info",
-      title: "Upstream Update",
-      message:
-        Installation.VERSION_RAW === Installation.VERSION
-          ? `Updating to v${version}...`
-          : `Upstream OpenCode v${version} available (you're on fork v${Installation.VERSION_RAW}). Updating...`,
+      title: "Updating",
+      message: `Updating to v${version}...`,
       duration: 30000,
     })
 
