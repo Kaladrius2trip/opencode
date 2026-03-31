@@ -1,6 +1,7 @@
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
-import { Effect, Layer, ServiceMap } from "effect"
+import { Cause, Effect, Layer, Record, ServiceMap } from "effect"
+import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
 import { mergeDeep, pipe } from "remeda"
@@ -28,13 +29,15 @@ export namespace LLM {
     agent: Agent.Info
     permission?: Permission.Ruleset
     system: string[]
-    systemSplit?: number
-    abort: AbortSignal
     messages: ModelMessage[]
     small?: boolean
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
+  }
+
+  export type StreamRequest = StreamInput & {
+    abort: AbortSignal
   }
 
   export type Event = Awaited<ReturnType<typeof stream>>["fullStream"] extends AsyncIterable<infer T> ? T : never
@@ -50,15 +53,32 @@ export namespace LLM {
     Effect.gen(function* () {
       return Service.of({
         stream(input) {
-          return Stream.unwrap(
-            Effect.promise(() => LLM.stream(input)).pipe(
-              Effect.map((result) =>
-                Stream.fromAsyncIterable(result.fullStream, (err) => err).pipe(
-                  Stream.mapEffect((event) => Effect.succeed(event)),
-                ),
-              ),
+          const stream: Stream.Stream<Event, unknown> = Stream.scoped(
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const ctrl = yield* Effect.acquireRelease(
+                  Effect.sync(() => new AbortController()),
+                  (ctrl) => Effect.sync(() => ctrl.abort()),
+                )
+                const queue = yield* Queue.unbounded<Event, unknown | Cause.Done>()
+
+                yield* Effect.promise(async () => {
+                  const result = await LLM.stream({ ...input, abort: ctrl.signal })
+                  for await (const event of result.fullStream) {
+                    if (!Queue.offerUnsafe(queue, event)) break
+                  }
+                  Queue.endUnsafe(queue)
+                }).pipe(
+                  Effect.catchCause((cause) => Effect.sync(() => void Queue.failCauseUnsafe(queue, cause))),
+                  Effect.onInterrupt(() => Effect.sync(() => ctrl.abort())),
+                  Effect.forkScoped,
+                )
+
+                return Stream.fromQueue(queue)
+              }),
             ),
           )
+          return stream
         },
       })
     }),
@@ -66,7 +86,7 @@ export namespace LLM {
 
   export const defaultLayer = layer
 
-  export async function stream(input: StreamInput) {
+  export async function stream(input: StreamRequest) {
     const l = log
       .clone()
       .tag("providerID", input.model.providerID)
@@ -89,7 +109,7 @@ export namespace LLM {
     const isOpenaiOauth = provider.id === "openai" && auth?.type === "oauth"
 
     const prompt = input.agent.prompt ? [input.agent.prompt] : isOpenaiOauth ? [] : SystemPrompt.provider(input.model)
-    const split = input.systemSplit ?? input.system.length
+    const split = input.system.length
     const system = [
       [...prompt, ...input.system.slice(0, split)].filter((x) => x).join("\n"),
       [...input.system.slice(split), ...(input.user.system ? [input.user.system] : [])].filter((x) => x).join("\n"),
@@ -146,7 +166,7 @@ export namespace LLM {
       "chat.params",
       {
         sessionID: input.sessionID,
-        agent: input.agent,
+        agent: input.agent.name,
         model: input.model,
         provider,
         message: input.user,
@@ -165,7 +185,7 @@ export namespace LLM {
       "chat.headers",
       {
         sessionID: input.sessionID,
-        agent: input.agent,
+        agent: input.agent.name,
         model: input.model,
         provider,
         message: input.user,
@@ -193,11 +213,19 @@ export namespace LLM {
       input.model.providerID.toLowerCase().includes("litellm") ||
       input.model.api.id.toLowerCase().includes("litellm")
 
+    // LiteLLM/Bedrock rejects requests where the message history contains tool
+    // calls but no tools param is present. When there are no active tools (e.g.
+    // during compaction), inject a stub tool to satisfy the validation requirement.
+    // The stub description explicitly tells the model not to call it.
     if (isLiteLLMProxy && Object.keys(tools).length === 0 && hasToolCalls(input.messages)) {
       tools["_noop"] = tool({
-        description:
-          "Placeholder for LiteLLM/Anthropic proxy compatibility - required when message history contains tool calls but no active tools are needed",
-        inputSchema: jsonSchema({ type: "object", properties: {} }),
+        description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
+        inputSchema: jsonSchema({
+          type: "object",
+          properties: {
+            reason: { type: "string", description: "Unused" },
+          },
+        }),
         execute: async () => ({ output: "", title: "", metadata: {} }),
       })
     }
@@ -308,17 +336,12 @@ export namespace LLM {
     })
   }
 
-  async function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" | "user">) {
+  function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" | "user">) {
     const disabled = Permission.disabled(
       Object.keys(input.tools),
       Permission.merge(input.agent.permission, input.permission ?? []),
     )
-    for (const tool of Object.keys(input.tools)) {
-      if (input.user.tools?.[tool] === false || disabled.has(tool)) {
-        delete input.tools[tool]
-      }
-    }
-    return input.tools
+    return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
   }
 
   // Check if messages contain any tool-call content
