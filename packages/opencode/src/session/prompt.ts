@@ -1490,7 +1490,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     MessageV2.toModelMessages(msgs, model),
                   ]),
                 )
-                const system = [...env, ...(skills ? [skills] : []), ...instructions]
+                const system = [...env, ...(skills ? [skills] : []), ...instructions.global, ...instructions.project]
                 const format = lastUser.format ?? { type: "text" as const }
                 if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
                 const result = yield* handle.process({
