@@ -108,12 +108,19 @@ export namespace LLM {
     // TODO: move this to a proper hook
     const isOpenaiOauth = provider.id === "openai" && auth?.type === "oauth"
 
-    const prompt = input.agent.prompt ? [input.agent.prompt] : isOpenaiOauth ? [] : SystemPrompt.provider(input.model)
-    const split = input.system.length
-    const system = [
-      [...prompt, ...input.system.slice(0, split)].filter((x) => x).join("\n"),
-      [...input.system.slice(split), ...(input.user.system ? [input.user.system] : [])].filter((x) => x).join("\n"),
-    ].filter(Boolean)
+    const system: string[] = []
+    system.push(
+      [
+        // use agent prompt otherwise provider prompt
+        ...(input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider(input.model)),
+        // any custom prompt passed into this call
+        ...input.system,
+        // any custom prompt from last user message
+        ...(input.user.system ? [input.user.system] : []),
+      ]
+        .filter((x) => x)
+        .join("\n"),
+    )
 
     const header = system[0]
     await Plugin.trigger(
