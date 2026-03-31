@@ -63,7 +63,7 @@ describe("AnthropicAuthPlugin", () => {
     globalThis.fetch = (async (_req: any, init?: RequestInit) => {
       captured.push({ headers: new Headers(init?.headers as any) })
       return Response.json({ type: "message", content: [] })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const sdk = makeSdk()
     const plugin = await AnthropicAuthPlugin(makeInput(sdk))
@@ -98,7 +98,7 @@ describe("AnthropicAuthPlugin", () => {
     globalThis.fetch = (async (_req: any, init?: RequestInit) => {
       capturedBody = init?.body as string
       return Response.json({ type: "message", content: [] })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const sdk = makeSdk()
     const plugin = await AnthropicAuthPlugin(makeInput(sdk))
@@ -145,7 +145,7 @@ describe("AnthropicAuthPlugin", () => {
         },
       })
       return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const sdk = makeSdk()
     const plugin = await AnthropicAuthPlugin(makeInput(sdk))
@@ -187,7 +187,7 @@ describe("AnthropicAuthPlugin", () => {
         },
       })
       return new Response(stream, { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const sdk = makeSdk()
     const plugin = await AnthropicAuthPlugin(makeInput(sdk))
@@ -223,7 +223,7 @@ describe("AnthropicAuthPlugin", () => {
         return new Response("unauthorized", { status: 401 })
       }
       return Response.json({ type: "message", content: [] })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const sdk = makeSdk()
     const plugin = await AnthropicAuthPlugin(makeInput(sdk))
