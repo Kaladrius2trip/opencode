@@ -10,8 +10,9 @@ import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
 import { readFileSync, readdirSync, existsSync } from "fs"
-import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
+import { CHANNEL } from "../installation/meta"
+import { InstanceState } from "@/effect/instance-state"
 import { iife } from "@/util/iife"
 import { init } from "#db"
 
@@ -29,9 +30,8 @@ const log = Log.create({ service: "db" })
 export namespace Database {
   export function getChannelPath() {
     const shared = path.join(Global.Path.data, "opencode.db")
-    const channel = Installation.CHANNEL
-    if (["latest", "beta"].includes(channel) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return shared
-    const safe = channel.replace(/[^a-zA-Z0-9._-]/g, "-")
+    if (["latest", "beta"].includes(CHANNEL) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return shared
+    const safe = CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")
     const custom = path.join(Global.Path.data, `opencode-${safe}.db`)
     if (existsSync(shared)) return shared
     return custom
@@ -138,10 +138,11 @@ export namespace Database {
   }
 
   export function effect(fn: () => any | Promise<any>) {
+    const bound = InstanceState.bind(fn)
     try {
-      ctx.use().effects.push(fn)
+      ctx.use().effects.push(bound)
     } catch {
-      fn()
+      bound()
     }
   }
 
@@ -158,12 +159,8 @@ export namespace Database {
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
-        const result = Client().transaction(
-          (tx: TxOrDb) => {
-            return ctx.provide({ tx, effects }, () => callback(tx))
-          },
-          { behavior: options?.behavior },
-        )
+        const txCallback = InstanceState.bind((tx: TxOrDb) => ctx.provide({ tx, effects }, () => callback(tx)))
+        const result = Client().transaction(txCallback, { behavior: options?.behavior })
         for (const effect of effects) effect()
         return result as NotPromise<T>
       }
