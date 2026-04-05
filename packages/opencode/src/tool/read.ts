@@ -17,8 +17,6 @@ const MAX_LINE_LENGTH = 2000
 const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`
 const MAX_BYTES = 50 * 1024
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
-// ~3.72 MB raw → ~4.96 MB base64 (stays under Anthropic's 5 MB limit)
-const MAX_MEDIA = 3_900_000
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
@@ -127,19 +125,6 @@ export const ReadTool = Tool.define("read", {
     const isImage = mime.startsWith("image/") && mime !== "image/svg+xml" && mime !== "image/vnd.fastbidsheet"
     const isPdf = mime === "application/pdf"
     if (isImage || isPdf) {
-      if (stat.size > MAX_MEDIA) {
-        const sizeMB = (Number(stat.size) / (1024 * 1024)).toFixed(1)
-        const msg = `${isImage ? "Image" : "PDF"} is too large to embed inline (${sizeMB} MB). Maximum is ~3.7 MB to stay within provider base64 limits. Consider using a smaller or compressed file.`
-        return {
-          title,
-          output: msg,
-          metadata: {
-            preview: msg,
-            truncated: false,
-            loaded: instructions.map((i) => i.filepath),
-          },
-        }
-      }
       const msg = `${isImage ? "Image" : "PDF"} read successfully`
       return {
         title,

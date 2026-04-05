@@ -601,17 +601,6 @@ export namespace MessageV2 {
       return false
     })()
 
-    const limit = iife(() => {
-      switch (model.api.npm) {
-        case "@ai-sdk/anthropic":
-        case "@ai-sdk/amazon-bedrock":
-        case "@ai-sdk/google-vertex/anthropic":
-          return 5_242_880
-        default:
-          return 20_000_000
-      }
-    })
-
     const toModelOutput = (options: { toolCallId: string; input: unknown; output: unknown }) => {
       const output = options.output
       if (typeof output === "string") {
@@ -631,19 +620,14 @@ export namespace MessageV2 {
           type: "content",
           value: [
             { type: "text", text: outputObject.text },
-            ...attachments.map((attachment) => {
-              const idx = attachment.url.indexOf(",")
-              const data = idx === -1 ? attachment.url : attachment.url.slice(idx + 1)
-              if (data.length > limit) {
-                const sizeMB = (data.length / (1024 * 1024)).toFixed(1)
-                const limitMB = (limit / (1024 * 1024)).toFixed(0)
-                return {
-                  type: "text",
-                  text: `[Media too large: ${sizeMB} MB base64, provider limit is ${limitMB} MB]`,
-                }
-              }
-              return { type: "media", mediaType: attachment.mime, data }
-            }),
+            ...attachments.map((attachment) => ({
+              type: "media",
+              mediaType: attachment.mime,
+              data: iife(() => {
+                const commaIndex = attachment.url.indexOf(",")
+                return commaIndex === -1 ? attachment.url : attachment.url.slice(commaIndex + 1)
+              }),
+            })),
           ],
         }
       }
@@ -934,7 +918,7 @@ export namespace MessageV2 {
     return result
   }
 
-  export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
+  export const filterCompactedEffect = Effect.fnUntraced((sessionID: SessionID) => {
     return filterCompacted(stream(sessionID))
   })
 
@@ -970,14 +954,6 @@ export namespace MessageV2 {
               syscall: (e as SystemError).syscall ?? "",
               message: (e as SystemError).message ?? "",
             },
-          },
-          { cause: e },
-        ).toObject()
-      case e instanceof Error && e.message === "SSE read timed out":
-        return new MessageV2.APIError(
-          {
-            message: "SSE read timed out",
-            isRetryable: true,
           },
           { cause: e },
         ).toObject()
