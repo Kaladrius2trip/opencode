@@ -170,7 +170,8 @@ export namespace Provider {
         autoload: false,
         options: {
           headers: {
-            "anthropic-beta": "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+            "anthropic-beta":
+              "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-1m-2025-08-07",
           },
         },
       }
