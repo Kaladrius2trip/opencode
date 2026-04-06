@@ -186,7 +186,7 @@ export namespace ProviderTransform {
       })
     }
 
-    const noPrefillProviders = ["azure_ai", "litellm", "openai-compatible"]
+    const noPrefillProviders = ["azure_ai", "litellm", "openai-compatible", "github-copilot"]
     const providerId = model.providerID?.toLowerCase() || ""
     const apiId = model.api.id?.toLowerCase() || ""
     const npmPackage = model.api.npm?.toLowerCase() || ""
