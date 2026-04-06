@@ -186,16 +186,7 @@ export namespace ProviderTransform {
       })
     }
 
-    const noPrefillProviders = ["azure_ai", "litellm", "openai-compatible", "github-copilot"]
-    const providerId = model.providerID?.toLowerCase() || ""
-    const apiId = model.api.id?.toLowerCase() || ""
-    const npmPackage = model.api.npm?.toLowerCase() || ""
-
-    const needsNoPrefill = noPrefillProviders.some(
-      (p) => providerId.includes(p) || apiId.includes(p) || npmPackage.includes(p),
-    )
-
-    if (needsNoPrefill && msgs.length > 0 && msgs[msgs.length - 1]?.role === "assistant") {
+    if (msgs.length > 0 && msgs[msgs.length - 1]?.role === "assistant") {
       msgs = msgs.slice(0, -1)
     }
 
