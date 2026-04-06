@@ -166,12 +166,15 @@ export namespace Provider {
 
   const CUSTOM_LOADERS: Record<string, CustomLoader> = {
     async anthropic() {
+      const betas = ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"]
+      if (Env.get("ANTHROPIC_ENABLE_1M_CONTEXT") === "true") {
+        betas.push("context-1m-2025-08-07")
+      }
       return {
         autoload: false,
         options: {
           headers: {
-            "anthropic-beta":
-              "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-1m-2025-08-07",
+            "anthropic-beta": betas.join(","),
           },
         },
       }
