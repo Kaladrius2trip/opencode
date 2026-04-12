@@ -1,5 +1,6 @@
 import { Bus } from "@/bus"
 import { Config } from "@/config/config"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 import { Installation } from "@/installation"
@@ -45,12 +46,12 @@ function discoverPlugins(config: Awaited<ReturnType<typeof Config.getGlobal>>): 
 }
 
 export async function upgrade() {
-  const config = await Config.getGlobal()
-  const method = await Installation.method()
+  const config: Awaited<ReturnType<typeof Config.getGlobal>> = await Config.getGlobal()
+  const method = await AppRuntime.runPromise(Installation.Service.use((svc) => svc.method()))
   Installation.setTrackedPlugins(discoverPlugins(config))
 
   const [latest] = await Promise.all([
-    Installation.latest(method).catch(() => undefined),
+    AppRuntime.runPromise(Installation.Service.use((svc) => svc.latest(method))).catch(() => undefined),
     Installation.checkAllPluginUpdates(),
   ])
   if (!latest) return

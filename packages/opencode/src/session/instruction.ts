@@ -1,10 +1,9 @@
 import os from "os"
 import path from "path"
-import { Effect, Layer, ServiceMap } from "effect"
+import { Effect, Layer, Context } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { AppFileSystem } from "@/filesystem"
 import { withTransientReadRetry } from "@/util/effect-http-client"
@@ -51,8 +50,18 @@ function extract(messages: MessageV2.WithParts[]) {
   return paths
 }
 
-export namespace InstructionPrompt {
-  export type SystemInstructions = { global: string[]; project: string[] }
+export namespace Instruction {
+  export interface Interface {
+    readonly clear: (messageID: MessageID) => Effect.Effect<void>
+    readonly systemPaths: () => Effect.Effect<Set<string>, AppFileSystem.Error>
+    readonly system: () => Effect.Effect<string[], AppFileSystem.Error>
+    readonly find: (dir: string) => Effect.Effect<string | undefined, AppFileSystem.Error>
+    readonly resolve: (
+      messages: MessageV2.WithParts[],
+      filepath: string,
+      messageID: MessageID,
+    ) => Effect.Effect<{ filepath: string; content: string }[], AppFileSystem.Error>
+  }
 
   const state = Instance.state(() => {
     return {
@@ -66,7 +75,7 @@ export namespace InstructionPrompt {
     return claimed.has(filepath)
   }
 
-  export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Instruction") {}
+  export class Service extends Context.Service<Service, Interface>()("@opencode/Instruction") {}
 
   export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.Service | HttpClient.HttpClient> =
     Layer.effect(
@@ -156,7 +165,9 @@ export namespace InstructionPrompt {
                     })
                   : relative(instruction)
               ).pipe(Effect.catch(() => Effect.succeed([] as string[])))
-              matches.forEach((item) => paths.add(path.resolve(item)))
+              matches.forEach((item) => {
+                paths.add(path.resolve(item))
+              })
             }
           }
 
@@ -167,7 +178,7 @@ export namespace InstructionPrompt {
           const config = yield* cfg.get()
           const paths = yield* systemPaths()
           const urls = (config.instructions ?? []).filter(
-            (item) => item.startsWith("https://") || item.startsWith("http://"),
+            (item): item is string => item.startsWith("https://") || item.startsWith("http://"),
           )
 
           const files = yield* Effect.forEach(Array.from(paths), read, { concurrency: 8 })
@@ -240,133 +251,9 @@ export namespace InstructionPrompt {
     Layer.provide(FetchHttpClient.layer),
   )
 
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export function clear(messageID: MessageID) {
-    return runPromise((svc) => svc.clear(messageID))
-  }
-
-  export async function systemPaths() {
-    const config = await Config.get()
-    const global = new Set<string>()
-    const project = new Set<string>()
-
-    if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-      for (const file of FILES) {
-        const matches = await Filesystem.findUp(file, Instance.directory, Instance.worktree)
-        if (matches.length > 0) {
-          matches.forEach((p) => {
-            project.add(path.resolve(p))
-          })
-          break
-        }
-      }
-    }
-
-    for (const file of globalFiles()) {
-      if (await Filesystem.exists(file)) {
-        global.add(path.resolve(file))
-        break
-      }
-    }
-
-    if (config.instructions) {
-      for (let instruction of config.instructions) {
-        if (instruction.startsWith("https://") || instruction.startsWith("http://")) continue
-        if (instruction.startsWith("~/")) {
-          instruction = path.join(os.homedir(), instruction.slice(2))
-        }
-        const matches = path.isAbsolute(instruction)
-          ? await Glob.scan(path.basename(instruction), {
-              cwd: path.dirname(instruction),
-              absolute: true,
-              include: "file",
-            }).catch(() => [])
-          : await resolveRelative(instruction)
-        matches.forEach((p) => {
-          project.add(path.resolve(p))
-        })
-      }
-    }
-
-    return { global, project }
-  }
-
-  let cached: SystemInstructions | undefined
-
-  export async function system(): Promise<SystemInstructions> {
-    if (Flag.OPENCODE_EXPERIMENTAL_CACHE_STABILIZATION && cached) return cached
-
-    const paths = await systemPaths()
-    const config = await Config.get()
-
-    const readPaths = (set: Set<string>) =>
-      Array.from(set).map(async (p) => {
-        const content = await Filesystem.readText(p).catch(() => "")
-        return content ? "Instructions from: " + p + "\n" + content : ""
-      })
-
-    const urls: string[] = []
-    if (config.instructions) {
-      for (const instruction of config.instructions) {
-        if (instruction.startsWith("https://") || instruction.startsWith("http://")) {
-          urls.push(instruction)
-        }
-      }
-    }
-    const fetches = urls.map((url) =>
-      fetch(url, { signal: AbortSignal.timeout(5000) })
-        .then((res) => (res.ok ? res.text() : ""))
-        .catch(() => "")
-        .then((x) => (x ? "Instructions from: " + url + "\n" + x : "")),
-    )
-
-    const [global, project] = await Promise.all([
-      Promise.all(readPaths(paths.global)).then((result) => result.filter(Boolean)),
-      Promise.all([...readPaths(paths.project), ...fetches]).then((result) => result.filter(Boolean)),
-    ])
-
-    const result = { global, project }
-    if (Flag.OPENCODE_EXPERIMENTAL_CACHE_STABILIZATION) cached = result
-    return result
-  }
-
   export function loaded(messages: MessageV2.WithParts[]) {
     return extract(messages)
   }
-
-  export async function find(dir: string) {
-    for (const file of FILES) {
-      const filepath = path.resolve(path.join(dir, file))
-      if (await Filesystem.exists(filepath)) return filepath
-    }
-  }
-
-  export async function resolve(messages: MessageV2.WithParts[], filepath: string, messageID: string) {
-    const paths = await systemPaths()
-    const system = new Set([...paths.global, ...paths.project])
-    const already = loaded(messages)
-    const results: { filepath: string; content: string }[] = []
-
-    const target = path.resolve(filepath)
-    let current = path.dirname(target)
-    const root = path.resolve(Instance.directory)
-
-    while (current.startsWith(root) && current !== root) {
-      const found = await find(current)
-
-      if (found && found !== target && !system.has(found) && !already.has(found) && !isClaimed(messageID, found)) {
-        claim(messageID, found)
-        const content = await Filesystem.readText(found).catch(() => undefined)
-        if (content) {
-          results.push({ filepath: found, content: "Instructions from: " + found + "\n" + content })
-        }
-      }
-      current = path.dirname(current)
-    }
-
-    return results
-  }
 }
 
-export const Instruction = InstructionPrompt
+export import InstructionPrompt = Instruction
