@@ -3939,6 +3939,7 @@ describe("ProviderTransform.variants", () => {
       { id: "gpt-5-4", efforts: ["none", "low", "medium", "high", "xhigh"] },
       { id: "gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
       { id: "gpt-5-5", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "gpt-5.6-sol", efforts: ["none", "low", "medium", "high", "xhigh"] },
     ]) {
       test(`${testCase.id} returns supported Azure reasoning efforts`, () => {
         const result = ProviderTransform.variants(
@@ -4039,6 +4040,21 @@ describe("ProviderTransform.variants", () => {
         releaseDate: "2026-04-23",
         efforts: ["none", "low", "medium", "high", "xhigh"],
       },
+      {
+        id: "gpt-5.6-sol",
+        releaseDate: "2026-07-09",
+        efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+      },
+      {
+        id: "gpt-5.6-terra",
+        releaseDate: "2026-07-09",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      },
+      {
+        id: "gpt-5.6-luna",
+        releaseDate: "2026-07-09",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      },
       { id: "gpt-5.4-pro", releaseDate: "2026-03-05", efforts: ["medium", "high", "xhigh"] },
       { id: "gpt-5.5-pro", releaseDate: "2026-04-23", efforts: ["medium", "high", "xhigh"] },
       { id: "gpt-5-codex", releaseDate: "2025-09-23", efforts: ["low", "medium", "high"] },
@@ -4067,6 +4083,26 @@ describe("ProviderTransform.variants", () => {
         expect(Object.keys(result)).toEqual(testCase.efforts)
       })
     }
+
+    test("gpt-5.6 ultra uses max reasoning on the OpenAI wire", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "gpt-5.6-sol",
+          providerID: "openai",
+          api: {
+            id: "gpt-5.6-sol",
+            url: "https://api.openai.com",
+            npm: "@ai-sdk/openai",
+          },
+          release_date: "2026-07-09",
+        }),
+      )
+      expect(result.ultra).toEqual({
+        reasoningEffort: "max",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
 
     test("gpt-50 (lookalike) does not get gpt-5 family treatment", () => {
       const model = createMockModel({
@@ -4639,6 +4675,7 @@ describe("ProviderTransform.variants", () => {
 
     for (const testCase of [
       { id: "openai/gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "openai/gpt-5.6-sol", efforts: ["none", "low", "medium", "high", "xhigh"] },
       { id: "openai/gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
       { id: "openai/gpt-5.3-codex", efforts: ["none", "low", "medium", "high", "xhigh"] },
       { id: "openai/gpt-5-pro", efforts: ["high"] },

@@ -528,6 +528,8 @@ const OPENAI_GPT5_PRO_2_PLUS_EFFORTS = ["medium", "high", "xhigh"]
 const OPENAI_GPT5_CHAT_EFFORTS = ["medium"]
 const OPENAI_GPT5_CODEX_XHIGH_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
 const OPENAI_GPT5_CODEX_3_PLUS_EFFORTS = ["none", ...OPENAI_GPT5_CODEX_XHIGH_EFFORTS]
+const OPENAI_GPT5_6_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh", "max"]
+const OPENAI_GPT5_6_AGENTIC_EFFORTS = [...OPENAI_GPT5_6_EFFORTS, "ultra"]
 
 // OpenAI rolled out the `none` reasoning_effort tier on this date (Responses API).
 // Models released before it 400 on `reasoning_effort: "none"`, so we only expose
@@ -568,6 +570,12 @@ function gpt5CodexReasoningEfforts(apiId: string) {
 function gpt5ChatReasoningEfforts(apiId: string) {
   if (!GPT5_FAMILY_RE.test(apiId) || !apiId.includes("-chat")) return undefined
   return gpt5Version(apiId) === undefined ? [] : OPENAI_GPT5_CHAT_EFFORTS
+}
+
+function gpt56ReasoningEfforts(apiId: string) {
+  if (/(?:^|\/)gpt-5[.-]6[.-](?:terra|luna)(?:[.-]|$)/.test(apiId)) return OPENAI_GPT5_6_EFFORTS
+  if (/(?:^|\/)gpt-5[.-]6[.-]sol(?:[.-]|$)/.test(apiId)) return OPENAI_GPT5_6_AGENTIC_EFFORTS
+  return undefined
 }
 
 // Computes the reasoning_effort tiers an OpenAI (or OpenAI-compatible upstream
@@ -900,12 +908,15 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
         )
       }
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
-      const efforts = openaiReasoningEfforts(model.api.id, model.release_date)
+      const efforts =
+        model.providerID === "openai"
+          ? (gpt56ReasoningEfforts(model.api.id.toLowerCase()) ?? openaiReasoningEfforts(model.api.id, model.release_date))
+          : openaiReasoningEfforts(model.api.id, model.release_date)
       return Object.fromEntries(
         efforts.map((effort) => [
           effort,
           {
-            reasoningEffort: effort,
+            reasoningEffort: effort === "ultra" ? "max" : effort,
             reasoningSummary: "auto",
             include: INCLUDE_ENCRYPTED_REASONING,
           },

@@ -413,6 +413,22 @@ describe("session.message-v2.fromError", () => {
     expect(result.data.isRetryable).toBe(true)
   })
 
+  test("does not retry explicit OpenAI model not found errors", () => {
+    const error = new APICallError({
+      message: "Not Found",
+      url: "https://chatgpt.com/backend-api/codex/responses",
+      requestBodyValues: {},
+      statusCode: 404,
+      responseHeaders: { "content-type": "application/json" },
+      responseBody: '{"error":{"message":"Model not found","code":"model_not_found"}}',
+      isRetryable: false,
+    })
+    const result = MessageV2.fromError(error, { providerID: ProviderV2.ID.make("openai") })
+    if (!SessionV1.APIError.isInstance(result)) throw new Error("expected APIError")
+    expect(result.data.isRetryable).toBe(false)
+    expect(SessionRetry.retryable(result, retryProvider)).toBeUndefined()
+  })
+
   test("converts OpenAI server_error stream chunks to retryable APIError", () => {
     const result = MessageV2.fromError(
       {

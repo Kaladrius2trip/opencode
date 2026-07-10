@@ -23,6 +23,7 @@ export class ResponseStreamError extends Error {
 function isOpenAiErrorRetryable(e: APICallError) {
   const status = e.statusCode
   if (!status) return e.isRetryable
+  if (status === 404 && /model(?:_| )not(?:_| )found/i.test(`${e.message}\n${e.responseBody ?? ""}`)) return false
   // openai sometimes returns 404 for models that are actually available
   return status === 404 || e.isRetryable
 }
