@@ -2868,6 +2868,40 @@ describe("ProviderTransform.message - cache control on gateway", () => {
     expect(result[0].providerOptions).toBeUndefined()
   })
 
+  test("extendedTTL gives only the first Anthropic system message a 1h cache marker", () => {
+    const model = createModel({
+      providerID: "anthropic",
+      api: {
+        id: "claude-sonnet-4",
+        url: "https://api.anthropic.com",
+        npm: "@ai-sdk/anthropic",
+      },
+    })
+
+    const result = ProviderTransform.message(
+      [
+        { role: "system", content: "Global instructions" },
+        { role: "system", content: "Project instructions" },
+        { role: "user", content: "Hello" },
+        { role: "assistant", content: "Hi" },
+      ],
+      model,
+      { extendedTTL: true },
+    )
+
+    expect(result[0].providerOptions).toMatchObject({
+      anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } },
+    })
+    for (const message of result.slice(1)) {
+      expect(message.providerOptions).toMatchObject({
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      })
+      expect(message.providerOptions).not.toMatchObject({
+        anthropic: { cacheControl: { ttl: "1h" } },
+      })
+    }
+  })
+
   test("non-gateway anthropic keeps existing cache control behavior", () => {
     const model = createModel({
       providerID: "anthropic",
