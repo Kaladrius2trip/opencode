@@ -167,19 +167,21 @@ function selectBedrockMantleLanguageModel(sdk: BundledSDK, modelID: string) {
 
 function custom(dep: CustomDep): Record<string, CustomLoader> {
   return {
-    anthropic: () =>
-      Effect.succeed({
+    anthropic: Effect.fnUntraced(function* () {
+      const enable1M = (yield* dep.get("ANTHROPIC_ENABLE_1M_CONTEXT")) === "true"
+      return {
         autoload: false,
         options: {
           headers: {
             "anthropic-beta": [
               "interleaved-thinking-2025-05-14",
               "fine-grained-tool-streaming-2025-05-14",
-              ...(Env.get("ANTHROPIC_ENABLE_1M_CONTEXT") === "true" ? ["context-1m-2025-08-07"] : []),
+              ...(enable1M ? ["context-1m-2025-08-07"] : []),
             ].join(","),
           },
         },
-      }),
+      }
+    }),
     opencode: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
       const hasKey = iife(() => {
