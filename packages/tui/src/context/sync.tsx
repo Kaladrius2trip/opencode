@@ -171,6 +171,11 @@ export const {
     }
 
     event.subscribe((event, { directory, workspace }) => {
+      if ((event.type as string) === "ratelimit.updated") {
+        const props = (event as unknown as { properties: RateLimitEvent.Info }).properties
+        setStore("ratelimit", props.providerID, reconcile(props))
+        return
+      }
       switch (event.type) {
         case "server.instance.disposed":
           void bootstrap()
@@ -440,11 +445,6 @@ export const {
           break
         }
 
-        case "ratelimit.updated": {
-          const props = event.properties as RateLimitEvent.Info
-          setStore("ratelimit", props.providerID, reconcile(props))
-          break
-        }
       }
     })
 
