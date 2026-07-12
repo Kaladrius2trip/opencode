@@ -352,7 +352,7 @@ When merge/rebase conflicts occur, the agent should NOT simply stop. Instead, it
 
 For each conflicted file, the agent must:
 
-- extract both sides of the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
+- extract both sides of the opening, separator, and closing conflict markers
 - compare local changes vs upstream changes semantically, not just textually
 - classify the conflict into one of these categories:
   - **Duplicate solution**: both sides implemented the same fix/feature differently → pick the upstream version (maintainer's canonical solution) unless local version has meaningful additions

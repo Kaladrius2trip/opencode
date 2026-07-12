@@ -1,70 +1,9 @@
-import { BusEvent } from "@/bus/bus-event"
-import { Bus } from "@/bus"
-import { Instance } from "@/project/instance"
-import z from "zod"
+import { RateLimitEvent } from "@opencode-ai/schema/rate-limit-event"
 
 export namespace RateLimit {
-  export const Info = z
-    .object({
-      providerID: z.string(),
-      requests: z
-        .object({
-          limit: z.number(),
-          remaining: z.number(),
-          reset: z.string().optional(),
-        })
-        .optional(),
-      tokens: z
-        .object({
-          limit: z.number(),
-          remaining: z.number(),
-          reset: z.string().optional(),
-        })
-        .optional(),
-      inputTokens: z
-        .object({
-          remaining: z.number(),
-        })
-        .optional(),
-      outputTokens: z
-        .object({
-          remaining: z.number(),
-        })
-        .optional(),
-      utilization: z
-        .object({
-          window5h: z
-            .object({
-              pct: z.number(),
-              reset: z.number(),
-              status: z.string(),
-            })
-            .optional(),
-          window7d: z
-            .object({
-              pct: z.number(),
-              reset: z.number(),
-              status: z.string(),
-            })
-            .optional(),
-          overall: z.string().optional(),
-        })
-        .optional(),
-      time: z.number(),
-    })
-    .meta({
-      ref: "RateLimit",
-    })
-  export type Info = z.infer<typeof Info>
-
-  export const Event = {
-    Updated: BusEvent.define("ratelimit.updated", Info),
-  }
-
-  const state = Instance.state(() => {
-    const data: Record<string, Info> = {}
-    return data
-  })
+  export const Info = RateLimitEvent.Info
+  export type Info = RateLimitEvent.Info
+  export const Event = RateLimitEvent
 
   function parseAnthropic(headers: Record<string, string>, num: (h: string) => number | undefined): Info | undefined {
     const has = headers["anthropic-ratelimit-requests-limit"] || headers["anthropic-ratelimit-unified-5h-utilization"]
@@ -125,7 +64,7 @@ export namespace RateLimit {
     }
   }
 
-  export function parse(providerID: string, headers: Record<string, string>) {
+  export function parse(providerID: string, headers: Record<string, string>): Info | undefined {
     function num(h: string) {
       const val = Number.parseFloat(headers[h])
       if (!Number.isFinite(val)) return undefined
@@ -135,16 +74,6 @@ export namespace RateLimit {
     const parsed = parseAnthropic(headers, num) ?? parseOpenAI(headers, num)
     if (!parsed) return
 
-    const info: Info = { ...parsed, providerID, time: Date.now() }
-    Bus.publish(Event.Updated, info)
-    state()[providerID] = info
-  }
-
-  export function get(providerID: string) {
-    return state()[providerID]
-  }
-
-  export function list() {
-    return state()
+    return { ...parsed, providerID, time: Date.now() }
   }
 }

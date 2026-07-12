@@ -1,45 +1,36 @@
-- To regenerate the JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
-- ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
+- To regenerate the legacy JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
+- After changing the public Protocol or Server `HttpApi`, run `bun run generate` from `packages/client`. Do not edit `src/generated` or `src/generated-effect` directly.
+- Keep runtime dependencies directed from Schema to Core and Protocol, then from Core and Protocol to Server. Client runtime code may depend on Schema and Protocol but never Core or Server; `sdk-next` composes Client, Core, and Server.
 - The default branch in this repo is `dev`.
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
-- Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
+
+## Branch Names
+
+Use a short branch name of at most three words, separated by hyphens. Do not use slashes or type prefixes such as `feat/` or `fix/`.
+
+Examples: `session-recovery`, `fix-scroll-state`, `regenerate-sdk`.
+
+## Commits and PR Titles
+
+Use conventional commit-style messages and PR titles: `type(scope): summary`.
+
+Valid types are `feat`, `fix`, `docs`, `chore`, `refactor`, and `test`. Scopes are optional; use the affected package or area when helpful, e.g. `core`, `opencode`, `tui`, `app`, `desktop`, `sdk`, or `plugin`.
+
+Examples: `fix(tui): simplify thinking toggle styling`, `docs: update contributing guide`, `chore(sdk): regenerate types`.
 
 ## Style Guide
 
 ### General Principles
 
 - Keep things in one function unless composable or reusable
+- Do not extract single-use helpers preemptively. Inline the logic at the call site unless the helper is reused, hides a genuinely complex boundary, or has a clear independent name that improves the caller.
 - Avoid `try`/`catch` where possible
 - Avoid using the `any` type
-- Prefer single word variable names where possible
 - Use Bun APIs when possible, like `Bun.file()`
 - Rely on type inference when possible; avoid explicit type annotations or interfaces unless necessary for exports or clarity
 - Prefer functional array methods (flatMap, filter, map) over for loops; use type guards on filter to maintain type inference downstream
-
-### Naming
-
-Prefer single word names for variables and functions. Only use multiple words if necessary.
-
-### Naming Enforcement (Read This)
-
-THIS RULE IS MANDATORY FOR AGENT WRITTEN CODE.
-
-- Use single word names by default for new locals, params, and helper functions.
-- Multi-word names are allowed only when a single word would be unclear or ambiguous.
-- Do not introduce new camelCase compounds when a short single-word alternative is clear.
-- Before finishing edits, review touched lines and shorten newly introduced identifiers where possible.
-- Good short names to prefer: `pid`, `cfg`, `err`, `opts`, `dir`, `root`, `child`, `state`, `timeout`.
-- Examples to avoid unless truly required: `inputPID`, `existingClient`, `connectTimeout`, `workerPath`.
-
-```ts
-// Good
-const foo = 1
-function journal(dir: string) {}
-
-// Bad
-const fooBar = 1
-function prepareJournal(dir: string) {}
-```
+- In `src/config`, follow the existing self-export pattern at the top of the file (for example `export * as ConfigAgent from "./agent"`) when adding a new config module.
+- In Effect generators, bind services to named variables before calling methods. Do not use nested service yields such as `yield* (yield* Foo.Service).bar()`.
 
 Reduce total variable count by inlining when a value is only used once.
 
@@ -64,6 +55,13 @@ obj.b
 // Bad
 const { a, b } = obj
 ```
+
+### Imports
+
+- Never alias imports. Do not use `import { foo as bar } from "..."` or renamed imports like `resolve as pathResolve`.
+- Never use star imports. Do not use `import * as Foo from "..."` or `import type * as Foo from "..."`.
+- If a namespace-style value is needed, import the module's own exported namespace by name, for example `import { Project } from "@opencode-ai/core/project"`, then reference `Project.ID`.
+- Prefer dynamic imports for heavy modules that are only needed in selected code paths, especially in startup-sensitive entrypoints. Destructure dynamic import bindings near the top of the narrowest scope that needs them so they read like normal imports. Avoid inline chains such as `await import("./module").then((mod) => mod.value())` or `(await import("./module")).value()`. Keep branch-specific imports inside the branch that needs them to preserve lazy loading.
 
 ### Variables
 
@@ -97,6 +95,29 @@ function foo() {
 }
 ```
 
+### Complex Logic
+
+When a function has several validation branches or supporting details, make the main function read as the happy path and move supporting details into small helpers below it.
+
+```ts
+// Good
+export function loadThing(input: unknown) {
+  const config = requireConfig(input)
+  const metadata = readMetadata(input)
+  return createThing({ config, metadata })
+}
+
+function requireConfig(input: unknown) {
+  ...
+}
+```
+
+- Keep helpers close to the code they support, below the main export when that improves readability.
+- Do not over-abstract simple expressions into many single-use helpers; extract only when it names a real concept like `requireConfig` or `readMetadata`.
+- Do not return `Effect` from helpers unless they actually perform effectful work. Synchronous parsing, validation, and option building should stay synchronous.
+- Prefer Effect schema helpers such as `Schema.UnknownFromJsonString` and `Schema.decodeUnknownOption` over manual `JSON.parse` wrapped in `Effect.try` when parsing untrusted JSON strings.
+- Add comments for non-obvious constraints and surprising behavior, not for obvious assignments or control flow.
+
 ### Schema Definitions (Drizzle)
 
 Use snake_case for field names so column names don't need to be redefined as strings.
@@ -119,7 +140,7 @@ const table = sqliteTable("session", {
 
 ## Testing
 
-- Avoid mocks as much as possible
+- Avoid mocks as much as possible, you shouldn't be using globalThis.\* at all unless it's the only option.
 - Test actual implementation, do not duplicate logic into tests
 - Tests cannot run from repo root (guard: `do-not-run-tests-from-root`); run from package dirs like `packages/opencode`.
 
@@ -127,220 +148,14 @@ const table = sqliteTable("session", {
 
 - Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
 
-## Build & Install Pipeline
+## V2 Session Core
 
-When asked to build, install, or test the fork globally, follow this pipeline exactly.
-
-### Prerequisites
-
-- Working directory: repo root (e.g. `/home/yevhenii/Projects/opencode-fork`)
-- Bun installed and available
-- The compiled binary installs to `~/.opencode/bin/opencode`
-
-### Step 1: Build (single platform)
-
-```bash
-cd packages/opencode && bun run build -- --single
-```
-
-Output binary: `packages/opencode/dist/opencode-linux-x64/bin/opencode` (path varies by OS/arch).
-
-### Step 2: Backup current global version
-
-Before replacing, always backup with a git-hash-stamped name:
-
-```bash
-# Get current version's git hash for the backup name
-HASH=$(~/.opencode/bin/opencode --version 2>/dev/null | grep -oP '\+\K[a-f0-9]+' || echo "unknown")
-cp ~/.opencode/bin/opencode ~/.opencode/bin/opencode.backup-${HASH}
-```
-
-**Backup naming convention**: `opencode.backup-<git-short-hash>` (e.g. `opencode.backup-602be7c04`).
-
-After backup, prune old backups — keep only the 3 most recent:
-
-```bash
-ls -t ~/.opencode/bin/opencode.backup-* 2>/dev/null | tail -n +4 | xargs rm -f
-```
-
-### Step 3: Install globally
-
-```bash
-cp packages/opencode/dist/opencode-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x64/' | sed 's/aarch64/arm64/')/bin/opencode ~/.opencode/bin/opencode
-chmod 755 ~/.opencode/bin/opencode
-```
-
-Or use the install script:
-
-```bash
-./install --binary packages/opencode/dist/opencode-linux-x64/bin/opencode
-```
-
-### Step 4: Verify
-
-```bash
-~/.opencode/bin/opencode --version
-```
-
-Confirm the version string includes the expected fork hash (e.g. `1.2.27-fork+<new-hash>`).
-
-### Step 5: Test
-
-```bash
-cd packages/opencode && bun test --timeout 30000
-```
-
-Also run typecheck:
-
-```bash
-cd packages/opencode && bun typecheck
-```
-
-### Rollback
-
-If the new build is broken, restore from backup:
-
-```bash
-LATEST_BACKUP=$(ls -t ~/.opencode/bin/opencode.backup-* 2>/dev/null | head -1)
-cp "$LATEST_BACKUP" ~/.opencode/bin/opencode
-chmod 755 ~/.opencode/bin/opencode
-```
-
-### One-liner (full pipeline)
-
-```bash
-cd packages/opencode \
-  && bun run build -- --single \
-  && HASH=$(~/.opencode/bin/opencode --version 2>/dev/null | grep -oP '\+\K[a-f0-9]+' || echo "unknown") \
-  && cp ~/.opencode/bin/opencode ~/.opencode/bin/opencode.backup-${HASH} \
-  && ls -t ~/.opencode/bin/opencode.backup-* 2>/dev/null | tail -n +4 | xargs rm -f \
-  && cp dist/opencode-linux-x64/bin/opencode ~/.opencode/bin/opencode \
-  && chmod 755 ~/.opencode/bin/opencode \
-  && ~/.opencode/bin/opencode --version
-```
-
-### Important notes
-
-- **Dev mode** (`bun run dev` from repo root) runs source directly — no build needed. Use for quick iteration.
-- **Compiled binary** testing is needed to verify build output, bundled migrations, embedded assets.
-- The bun global wrapper at `~/.bun/bin/opencode` resolves to `packages/opencode/bin/opencode` which also checks `packages/opencode/bin/.opencode` as a cached binary.
-- Never leave `~/.opencode/bin/opencode` in a broken state — always backup first.
-- See `.opencode/plans/build-install-pipeline.md` for extended reference.
-
-## Plugin Ecosystem State
-
-Last audited: 2026-03-27
-
-### Marketplaces (`~/.claude/plugins/known_marketplaces.json`)
-
-| Name                    | Type            | Source                                         |
-| ----------------------- | --------------- | ---------------------------------------------- |
-| claude-plugins-official | GitHub          | `anthropics/claude-plugins-official`           |
-| superpowers-marketplace | GitHub          | `obra/superpowers-marketplace`                 |
-| cortex-dev              | Local directory | `/mnt/workdrive/Projects/Python/cortex-plugin` |
-| unreal-bridge-dev       | Local directory | (disabled)                                     |
-
-### npm Plugins (`opencode.json` → `plugin[]`)
-
-| Package                                 | Source                                                          | Notes                                                             |
-| --------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------- |
-| oh-my-opencode                          | npm `3.14.0`                                                    | Core orchestration plugin. GitHub: `code-yeongyu/oh-my-openagent` |
-| opencode-gemini-auth@latest             | npm                                                             | Google Gemini auth                                                |
-| @kaladrius2trip/opencode-anthropic-auth | `file:/home/yevhenii/Projects/opencode-anthropic-auth`          | Custom Anthropic OAuth                                            |
-| cc-safety-net                           | `file:/home/yevhenii/Projects/claude-code-safety-net`           | Safety guardrails                                                 |
-| @tarquinen/opencode-dcp                 | `file:/home/yevhenii/Projects/opencode-dynamic-context-pruning` | Dynamic context pruning                                           |
-| @plannotator/opencode                   | `file:/home/yevhenii/Projects/plannotator/apps/opencode-plugin` | Plan annotation UI                                                |
-| opentmux                                | `file:/home/yevhenii/Projects/opentmux`                         | Tmux integration                                                  |
-
-### Marketplace Plugins — Superpowers (`obra/superpowers-marketplace`)
-
-| Plugin                                 | Version | Commit     | GitHub Source                | Status                                                                            |
-| -------------------------------------- | ------- | ---------- | ---------------------------- | --------------------------------------------------------------------------------- |
-| superpowers                            | v5.0.5  | `8ea39819` | `obra/superpowers`           | Up to date (note: package.json says 5.0.4, git tag is v5.0.5 — upstream mismatch) |
-| double-shot-latte                      | v1.2.0  | `dfe75679` | `obra/double-shot-latte`     | Up to date                                                                        |
-| elements-of-style                      | v1.0.0  | `6099c505` | `obra/the-elements-of-style` | Up to date                                                                        |
-| episodic-memory                        | v1.0.15 | `6feaa5bd` | `obra/episodic-memory`       | Up to date                                                                        |
-| superpowers-chrome                     | v1.8.0  | `70b2c6cb` | `obra/superpowers-chrome`    | Up to date                                                                        |
-| superpowers-developing-for-claude-code | v0.3.1  | `74afe935` | obra                         | Up to date                                                                        |
-| superpowers-lab                        | v0.4.0  | `59389b15` | `obra/superpowers-lab`       | Up to date                                                                        |
-
-### Marketplace Plugins — Official (`anthropics/claude-plugins-official`)
-
-All at commit `b10b583d`. Up to date.
-
-Installed: clangd-lsp, commit-commands, context7, csharp-lsp, lua-lsp, pyright-lsp, rust-analyzer-lsp, code-review, hookify, claude-md-management, claude-code-setup, frontend-design, feature-dev, code-simplifier, ralph-loop, typescript-lsp, plugin-dev, learning-output-style
-
-| Plugin             | Version | Commit     | GitHub Source        | Status     |
-| ------------------ | ------- | ---------- | -------------------- | ---------- |
-| huggingface-skills | v1.0.1  | `ff289081` | `huggingface/skills` | Up to date |
-
-### Marketplace Plugins — Local
-
-| Plugin | Version | Commit     | Location                                       | Status     |
-| ------ | ------- | ---------- | ---------------------------------------------- | ---------- |
-| cortex | v0.2.6  | `6d4655d7` | `/mnt/workdrive/Projects/Python/cortex-plugin` | Up to date |
-
-### Patches (bun)
-
-1. **`@openrouter/ai-sdk-provider@1.5.4`** — Adds `providerMetadata.openrouter.reasoning_details` to `reasoning-end` events in streaming
-2. **`@standard-community/standard-openapi@0.2.9`** — Handles external `$ref` URLs in OpenAPI schema conversion
-
-### oh-my-opencode Config (`~/.config/opencode/oh-my-opencode.json`)
-
-Schema: `https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json`
-
-**Agents:**
-| Agent | Model | Variant |
-|-------|-------|---------|
-| sisyphus | anthropic/claude-opus-4-6 | max |
-| hephaestus | openai/gpt-5.4 | medium |
-| oracle | openai/gpt-5.4 | high |
-| explore | github-copilot/grok-code-fast-1 | — |
-| multimodal-looker | google/gemini-3-flash-preview | medium |
-| prometheus | anthropic/claude-opus-4-6 | max |
-| metis | anthropic/claude-opus-4-6 | max |
-| momus | openai/gpt-5.4 | medium |
-| atlas | anthropic/claude-sonnet-4-6 | — |
-| sisyphus-junior | anthropic/claude-sonnet-4-6 | — |
-| librarian | google/gemini-3-flash-preview | — |
-
-**Categories:**
-| Category | Model | Variant |
-|----------|-------|---------|
-| visual-engineering | github-copilot/gemini-3.1-pro-preview | high |
-| ultrabrain | openai/gpt-5.4 | xhigh |
-| deep | openai/gpt-5.4 | medium |
-| artistry | github-copilot/gemini-3.1-pro-preview | high |
-| quick | openai/gpt-5.4-mini | — |
-| unspecified-low | anthropic/claude-sonnet-4-6 | — |
-| unspecified-high | anthropic/claude-opus-4-6 | max |
-| writing | github-copilot/gemini-3-flash-preview | — |
-
-### Custom Skills (non-plugin)
-
-**`~/.claude/skills/`**: bulk-files, cortex, create-hooks, create-meta-prompts, create-plans, create-slash-commands, create-subagents, developer, fork-terminal, json-canvas, obsidian-bases, obsidian-markdown, pattern-editor, python-run, skill-toolkit, smart-parser, tts-speak, ue-worktree
-
-**`~/.opencode/skills/`**: fork-sync, ue-worktree
-
-### Connected Providers
-
-openai, github-copilot, google, anthropic, opencode, google-vertex, google-vertex-anthropic, ollama
-
-### Update Checklist (for next audit)
-
-```bash
-# Check oh-my-opencode
-bun outdated oh-my-opencode --cwd ~/.cache/opencode/
-
-# Check marketplace plugins (compare installed commit vs latest)
-# superpowers marketplace
-gh api repos/obra/superpowers/commits/main --jq '.sha[:8]'
-gh api repos/obra/double-shot-latte/commits/main --jq '.sha[:8]'
-gh api repos/obra/superpowers-chrome/commits/main --jq '.sha[:8]'
-
-# official plugins
-gh api repos/anthropics/claude-plugins-official/commits/main --jq '.sha[:8]'
-
-# huggingface
-gh api repos/huggingface/skills/commits/main --jq '.sha[:8]'
-```
+- Keep durable prompt admission separate from model execution. `SessionV2.prompt(...)` admits one durable `session_input` row before scheduling advisory `SessionExecution.wake(sessionID)` unless `resume: false` requests admit-only behavior. The serialized runner promotes admitted inputs into visible user messages at safe boundaries.
+- Reusing a Session ID adopts the existing Session. Reusing a prompt message ID reconciles an exact retry only when Session, prompt, and delivery mode match; conflicting reuse fails. Historical projected prompts lazily synthesize promoted inbox records during exact retry.
+- Keep `SessionExecution` process-global and Session-ID based. Its local implementation owns the process-local Session coordinator and discovers placement through `SessionStore` plus `LocationServiceMap.get(session.location)` only when a drain starts; no layer should take a Session ID. V2 interruption targets the active process-local ownership chain for that Session; idle or missing interruption is a no-op.
+- Keep `SessionRunner`, model resolution, tool registry, permissions, and filesystem Location-scoped. Omitted `Location.workspaceID` means implicit-local placement; explicit workspace identity remains reserved for future placement semantics.
+- Preserve one explicit `llm.stream(request)` call per provider turn and reload projected history before durable continuation. Do not bridge through legacy `SessionPrompt.loop(...)` or delegate orchestration to an in-memory tool loop.
+- Keep local Session drains process-local until clustering is implemented. `SessionRunCoordinator` joins explicit same-Session resumes, coalesces prompt wakeups, and allows different Sessions to run concurrently. Advisory wakes drain eligible durable inbox rows only; post-crash continuation recovery requires a separate explicit design before it may retry provider work. A drain has no durable identity or transcript boundary.
+- Keep delivery vocabulary explicit. Prompts steer by default and promote at the next safe provider-turn boundary while the current drain requires continuation. An explicit `queue` input remains pending until the Session would otherwise become idle; promote one queued input at that boundary, then reevaluate continuation before promoting another. Promoting any new user input resets the selected agent's provider-turn allowance; a batch of steers resets it once.
+- Keep EventV2 replay owner claims separate from clustered Session execution ownership.
+- Keep the System Context algebra, registry, and built-ins in `src/system-context`; keep Context Source producers with their observed domains, and keep Session History selection plus Context Epoch persistence Session-owned.
