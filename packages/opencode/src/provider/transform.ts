@@ -428,7 +428,6 @@ function mapProviderOptions(
 }
 
 export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
-  if (msgs.at(-1)?.role === "assistant") msgs = msgs.slice(0, -1)
   msgs = unsupportedParts(msgs, model)
   msgs = normalizeMessages(msgs, model, options)
   if (

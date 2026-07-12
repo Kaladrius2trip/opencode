@@ -29,6 +29,7 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
+import { stripAssistantPrefill } from "./llm/assistant-prefill"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -331,7 +332,7 @@ const live: Layer.Layer<
                   if (args.type === "stream") {
                     // @ts-expect-error
                     args.params.prompt = ProviderTransform.message(
-                      args.params.prompt,
+                      stripAssistantPrefill(args.params.prompt),
                       input.model,
                       prepared.messageTransformOptions,
                     )
