@@ -51,6 +51,7 @@ export interface Interface {
     directory: AbsolutePath
   }) => Effect.Effect<Directory | undefined>
   readonly contains: (input: { projectID: ProjectSchema.ID; directory: AbsolutePath }) => Effect.Effect<boolean>
+  readonly findByDirectory: (directory: AbsolutePath) => Effect.Effect<ProjectSchema.ID | undefined>
   readonly create: (input: CreateInput, tx?: Transaction) => Effect.Effect<boolean>
   readonly remove: (input: RemoveInput, tx?: Transaction) => Effect.Effect<boolean>
 }
@@ -145,10 +146,21 @@ const layer = Layer.effect(
       return row ? { directory: row.directory, strategy: row.strategy ?? undefined } : undefined
     })
 
+    const findByDirectory = Effect.fn("ProjectDirectories.findByDirectory")(function* (directory: AbsolutePath) {
+      const row = yield* db
+        .select({ projectID: ProjectDirectoryTable.project_id })
+        .from(ProjectDirectoryTable)
+        .where(eq(ProjectDirectoryTable.directory, directory))
+        .get()
+        .pipe(Effect.orDie)
+      return row?.projectID
+    })
+
     return Service.of({
       list,
       get,
       contains,
+      findByDirectory,
       create,
       remove,
     })
