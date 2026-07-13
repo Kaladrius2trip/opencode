@@ -20,6 +20,7 @@ import { SessionStatus } from "./status"
 import { SessionSummary } from "./summary"
 import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
+import { RateLimit } from "@/provider/ratelimit"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -454,6 +455,10 @@ const layer = Layer.effect(
               cost: usage.cost,
             })
             yield* session.updateMessage(ctx.assistantMessage)
+            const rateLimit = value.responseHeaders
+              ? RateLimit.parse(ctx.model.providerID, value.responseHeaders)
+              : undefined
+            if (rateLimit) yield* events.publish(RateLimit.Event.Updated, rateLimit)
             if (ctx.snapshot) {
               const patch = yield* snapshot.patch(ctx.snapshot)
               if (patch.files.length) {

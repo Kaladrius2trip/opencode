@@ -38,6 +38,7 @@ function directoryState() {
     mcp_resource: {},
     lsp_ready: true,
     lsp: [],
+    ratelimit: {},
     vcs: undefined,
     limit: 5,
     message: {},

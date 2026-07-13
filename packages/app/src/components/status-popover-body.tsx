@@ -16,6 +16,7 @@ import { type ServerHealth } from "@/utils/server-health"
 import { useGlobal } from "@/context/global"
 import { useSettings } from "@/context/settings"
 import { useMcpToggle } from "@/context/mcp"
+import { StatusPopoverLimitsContent, StatusPopoverLimitsTrigger } from "./status-popover-limits"
 
 const pluginEmptyMessage = (value: string, file: string): JSXElement => {
   const parts = value.split(file)
@@ -319,6 +320,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
             {pluginCount() > 0 ? `${pluginCount()} ` : ""}
             {language.t("status.popover.tab.plugins")}
           </Tabs.Trigger>
+          <StatusPopoverLimitsTrigger />
         </Tabs.List>
 
         {!settings.general.newLayoutDesigns() && (
@@ -497,6 +499,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
             </div>
           </div>
         </Tabs.Content>
+        <StatusPopoverLimitsContent />
       </Tabs>
     </div>
   )

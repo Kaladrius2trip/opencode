@@ -32,6 +32,7 @@ import { batch, onMount } from "solid-js"
 import path from "path"
 import { useKV } from "./kv"
 import { usePermission } from "./permission"
+import type { RateLimitEvent } from "@opencode-ai/schema/rate-limit-event"
 
 const emptyConsoleState: ConsoleState = {
   consoleManagedProviders: [],
@@ -104,6 +105,7 @@ export const {
         [key: string]: McpResource
       }
       formatter: FormatterStatus[]
+      ratelimit: Record<string, RateLimitEvent.Info>
       vcs: VcsInfo | undefined
     }>({
       provider_next: {
@@ -134,6 +136,7 @@ export const {
       mcp: {},
       mcp_resource: {},
       formatter: [],
+      ratelimit: {},
       vcs: undefined,
     })
 
@@ -168,6 +171,11 @@ export const {
     }
 
     event.subscribe((event, { directory, workspace }) => {
+      if ((event.type as string) === "ratelimit.updated") {
+        const props = (event as unknown as { properties: RateLimitEvent.Info }).properties
+        setStore("ratelimit", props.providerID, reconcile(props))
+        return
+      }
       switch (event.type) {
         case "server.instance.disposed":
           void bootstrap()
@@ -436,6 +444,7 @@ export const {
           }
           break
         }
+
       }
     })
 

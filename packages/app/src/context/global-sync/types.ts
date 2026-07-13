@@ -18,6 +18,7 @@ import type {
   VcsInfo,
 } from "@opencode-ai/sdk/v2/client"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
+import type { RateLimitEvent } from "@opencode-ai/schema/rate-limit-event"
 import type { Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
 
@@ -31,6 +32,8 @@ export type ProjectMeta = {
     start?: string
   }
 }
+
+export type RateLimitInfo = RateLimitEvent.Info
 
 export type State = {
   status: "loading" | "partial" | "complete"
@@ -71,6 +74,9 @@ export type State = {
   }
   lsp_ready: boolean
   lsp: LspStatus[]
+  ratelimit: {
+    [providerID: string]: RateLimitInfo
+  }
   vcs: VcsInfo | undefined
   limit: number
   message: {

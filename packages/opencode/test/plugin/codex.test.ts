@@ -14,31 +14,6 @@ function createTestJwt(payload: object): string {
   return `${header}.${body}.sig`
 }
 
-function createProviderModel(id: string, limit: { context: number; input: number; output: number }) {
-  return {
-    id,
-    api: { id, url: "https://example.com", npm: "@ai-sdk/openai-compatible" },
-    name: id,
-    family: "gpt-5.6",
-    status: "active",
-    options: {},
-    headers: {},
-    cost: { input: 1, output: 2, cache: { read: 3, write: 4 } },
-    limit,
-    capabilities: {
-      temperature: false,
-      reasoning: false,
-      attachment: false,
-      toolcall: true,
-      input: { text: true, audio: false, image: false, video: false, pdf: false },
-      output: { text: true, audio: false, image: false, video: false, pdf: false },
-      interleaved: false,
-    },
-    release_date: "2026-07-10",
-    variants: {},
-  }
-}
-
 describe("plugin.codex", () => {
   test("escapes provider errors in callback HTML", () => {
     const error = `</div><script>alert("xss" & 'more')</script>`
@@ -194,73 +169,28 @@ describe("plugin.codex", () => {
     expect(output.headers["session-id"]).toBe("session-test")
   })
 
-  test("caps GPT-5.6 OAuth models and keeps GPT-5.5 limit unchanged", async () => {
+  test("uses Codex context limits for OAuth GPT models", async () => {
     const hooks = await CodexAuthPlugin({} as never)
+    const limit = { context: 1_050_000, input: 922_000, output: 128_000 }
     const provider = {
-      models: {
-        "gpt-5.6-sol": createProviderModel("gpt-5.6-sol", {
-          context: 1_050_000,
-          input: 1_050_000,
-          output: 64_000,
-        }),
-        "gpt-5.6-terra": createProviderModel("gpt-5.6-terra", {
-          context: 1_050_000,
-          input: 1_050_000,
-          output: 64_000,
-        }),
-        "gpt-5.6-luna": createProviderModel("gpt-5.6-luna", {
-          context: 1_050_000,
-          input: 1_050_000,
-          output: 64_000,
-        }),
-        "gpt-5.5": createProviderModel("gpt-5.5", {
-          context: 1_050_000,
-          input: 1_050_000,
-          output: 64_000,
-        }),
-      },
-    } as never
-
-    const transformModels = hooks.provider?.models
-    if (!transformModels) throw new TypeError("Codex plugin must expose a provider models hook")
-    const models = await transformModels(provider, { auth: { type: "oauth" } } as never)
-
-    for (const modelID of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] as const) {
-      expect(models[modelID].limit).toEqual({
-        context: 372_000,
-        input: 353_400,
-        output: 64_000,
-      })
+      models: Object.fromEntries(
+        ["gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].map((id) => [
+          id,
+          { id, api: { id }, limit, cost: {} },
+        ]),
+      ),
     }
 
-    expect(models["gpt-5.5"].limit).toEqual({
-      context: 400_000,
-      input: 272_000,
-      output: 128_000,
-    })
-  })
+    const models = await hooks.provider!.models!(provider as never, { auth: { type: "oauth" } } as never)
 
-  test("keeps GPT-5.6 API-auth models at Models.dev limits", async () => {
-    const hooks = await CodexAuthPlugin({} as never)
-    const provider = {
-      models: {
-        "gpt-5.6-sol": createProviderModel("gpt-5.6-sol", {
-          context: 1_050_000,
-          input: 1_050_000,
-          output: 64_000,
-        }),
-      },
-    } as never
-
-    const transformModels = hooks.provider?.models
-    if (!transformModels) throw new TypeError("Codex plugin must expose a provider models hook")
-    const models = await transformModels(provider, { auth: { type: "api", key: "sk-test" } } as never)
-
-    expect(models["gpt-5.6-sol"].limit).toEqual({
-      context: 1_050_000,
-      input: 1_050_000,
-      output: 64_000,
-    })
+    expect(models["gpt-5.4"]?.limit).toEqual(limit)
+    expect(models["gpt-5.5"]?.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
+    expect(models["gpt-5.6-sol"]?.limit).toEqual({ context: 500_000, input: 372_000, output: 128_000 })
+    expect(models["gpt-5.6-terra"]?.limit).toEqual({ context: 500_000, input: 372_000, output: 128_000 })
+    expect(models["gpt-5.6-luna"]?.limit).toEqual({ context: 500_000, input: 372_000, output: 128_000 })
+    expect(await hooks.provider!.models!(provider as never, { auth: { type: "api" } } as never)).toBe(
+      provider.models as never,
+    )
   })
 
   test("deduplicates concurrent Codex token refreshes", async () => {

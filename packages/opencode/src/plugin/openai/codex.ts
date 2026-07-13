@@ -16,9 +16,6 @@ const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
 const ALLOWED_MODELS = new Set(["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini"])
 const DISALLOWED_MODELS = new Set(["gpt-5.5-pro"])
-const GPT56_MODELS = new Set(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
-const GPT56_CODEX_CONTEXT_WINDOW = 372_000
-const GPT56_CODEX_INPUT_LIMIT = 353_400
 
 interface PkceCodes {
   verifier: string
@@ -78,26 +75,6 @@ export function extractAccountId(tokens: TokenResponse): string | undefined {
     return claims ? extractAccountIdFromClaims(claims) : undefined
   }
   return undefined
-}
-
-function oauthModelLimit(model: SDKModel): SDKModel["limit"] {
-  if (model.id.includes("gpt-5.5")) {
-    return {
-      context: 400_000,
-      input: 272_000,
-      output: 128_000,
-    }
-  }
-
-  if (GPT56_MODELS.has(model.id) || GPT56_MODELS.has(model.api.id)) {
-    return {
-      ...model.limit,
-      context: GPT56_CODEX_CONTEXT_WINDOW,
-      input: GPT56_CODEX_INPUT_LIMIT,
-    }
-  }
-
-  return model.limit
 }
 
 function buildAuthorizeUrl(redirectUri: string, pkce: PkceCodes, state: string): string {
@@ -310,6 +287,7 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
             .filter(([, model]) => {
               if (ALLOWED_MODELS.has(model.api.id)) return true
               if (DISALLOWED_MODELS.has(model.api.id)) return false
+              if (model.api.id === "gpt-5.6") return false
               const match = model.api.id.match(/^gpt-(\d+\.\d+)/)
               return match ? parseFloat(match[1]) > 5.4 : false
             })
@@ -322,7 +300,19 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
                   output: 0,
                   cache: { read: 0, write: 0 },
                 },
-                limit: oauthModelLimit(model),
+                limit: model.id.includes("gpt-5.5")
+                  ? {
+                      context: 400_000,
+                      input: 272_000,
+                      output: 128_000,
+                    }
+                  : model.id.includes("gpt-5.6")
+                    ? {
+                        context: 500_000,
+                        input: 372_000,
+                        output: 128_000,
+                      }
+                    : model.limit,
               },
             ]),
         )

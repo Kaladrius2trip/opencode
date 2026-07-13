@@ -11,7 +11,7 @@ import type {
   SnapshotFileDiff,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { State, VcsCache } from "./types"
+import type { RateLimitInfo, State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
@@ -407,6 +407,11 @@ export function applyDirectoryEvent(input: {
     }
     case "reference.updated": {
       input.loadReferences?.()
+      break
+    }
+    case "ratelimit.updated": {
+      const props = event.properties as RateLimitInfo
+      input.setStore("ratelimit", props.providerID, reconcile(props))
       break
     }
   }

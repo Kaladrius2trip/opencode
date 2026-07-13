@@ -167,15 +167,21 @@ function selectBedrockMantleLanguageModel(sdk: BundledSDK, modelID: string) {
 
 function custom(dep: CustomDep): Record<string, CustomLoader> {
   return {
-    anthropic: () =>
-      Effect.succeed({
+    anthropic: Effect.fnUntraced(function* () {
+      const enable1M = (yield* dep.get("ANTHROPIC_ENABLE_1M_CONTEXT")) === "true"
+      return {
         autoload: false,
         options: {
           headers: {
-            "anthropic-beta": "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+            "anthropic-beta": [
+              "interleaved-thinking-2025-05-14",
+              "fine-grained-tool-streaming-2025-05-14",
+              ...(enable1M ? ["context-1m-2025-08-07"] : []),
+            ].join(","),
           },
         },
-      }),
+      }
+    }),
     opencode: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
       const hasKey = iife(() => {
@@ -1247,9 +1253,11 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     variants: {},
   }
 
+  const variants = ProviderTransform.reasoningVariants(model, base) ?? ProviderTransform.variants(base)
+
   return {
     ...base,
-    variants: mapValues(ProviderTransform.variants(base), (v) => v),
+    variants: mapValues(variants, (v) => v),
   }
 }
 
@@ -1492,7 +1500,11 @@ const layer = Layer.effect(
               release_date: model.release_date ?? existingModel?.release_date ?? "",
               variants: {},
             }
-            const merged = mergeDeep(ProviderTransform.variants(parsedModel), model.variants ?? {})
+            const variants =
+              existingModel?.api.npm === parsedModel.api.npm
+                ? (existingModel.variants ?? ProviderTransform.variants(parsedModel))
+                : ProviderTransform.variants(parsedModel)
+            const merged = mergeDeep(variants, model.variants ?? {})
             parsedModel.variants = mapValues(
               pickBy(merged, (v) => !v.disabled),
               (v) => omit(v, ["disabled"]),
@@ -1620,7 +1632,7 @@ const layer = Layer.effect(
             )
               delete provider.models[modelID]
 
-            if (!model.variants || Object.keys(model.variants).length === 0) {
+            if (model.variants === undefined) {
               model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
             }
 

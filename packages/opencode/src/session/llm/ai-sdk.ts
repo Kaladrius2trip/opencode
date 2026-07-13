@@ -104,6 +104,7 @@ export function toLLMEvents(
             reason: finishReason(event.finishReason),
             usage: usage(event.usage),
             providerMetadata: metadata,
+            responseHeaders: event.response?.headers,
           }),
         ]
       })
