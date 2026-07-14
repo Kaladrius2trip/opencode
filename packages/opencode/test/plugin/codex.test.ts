@@ -149,26 +149,6 @@ describe("plugin.codex", () => {
     await enabled.dispose?.()
   })
 
-  test("uses official Codex request identity", async () => {
-    const hooks = await CodexAuthPlugin({} as never)
-    const output = { headers: {} as Record<string, string> }
-
-    await hooks["chat.headers"]!(
-      {
-        sessionID: "session-test",
-        agent: "build",
-        model: { providerID: "openai" } as never,
-        provider: {} as never,
-        message: {} as never,
-      },
-      output,
-    )
-
-    expect(output.headers.originator).toBe("codex_cli_rs")
-    expect(output.headers["User-Agent"]).toMatch(/^codex_cli_rs\//)
-    expect(output.headers["session-id"]).toBe("session-test")
-  })
-
   test("filters unsupported modes and uses Codex context limits for OAuth GPT models", async () => {
     const hooks = await CodexAuthPlugin({} as never)
     const limit = { context: 1_050_000, input: 922_000, output: 128_000 }
